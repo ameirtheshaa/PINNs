@@ -1,0 +1,2 @@
+unable to upload wind data for cylinder-cell geometry due to size limitations
+download it here instead - https://gitlab.cern.ch/abinakbe/pinns/-/tree/master/data
