@@ -384,7 +384,8 @@ def generate_points_from_X(X, n, device):
                     point = [x, y, z, cos_theta, sin_theta]
                     all_points.append(point)
 
-    points_tensor = torch.stack(all_points).to(device)
+    points_tensor = torch.tensor(all_points, dtype=torch.float32)
+    points_tensor = points_tensor.to(device)
 
     return points_tensor
 

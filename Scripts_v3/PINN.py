@@ -116,7 +116,7 @@ class PINN(nn.Module):
 
         return u, v, w, p, nu_t, cont
 
-    # def compute_physics_momentum_loss(self, X):
+    # def compute_physics_momentum_loss(self, X, activation):
     #     wind_angle, x, y, z = self.extract_parameters(X)  # Extract the required input parameters for the RANS function
     #     u_pred, v_pred, w_pred, p_pred, f, g, h, cont = self.RANS(wind_angle, x, y, z, nu_t, rho, nu)
         
@@ -127,9 +127,9 @@ class PINN(nn.Module):
     #     loss_physics_momentum = loss_f + loss_g + loss_h 
     #     return loss_physics_momentum
 
-    def compute_physics_cont_loss(self, X):
+    def compute_physics_cont_loss(self, X, rho, nu, activation):
         wind_angle, x, y, z = self.extract_parameters(X)  # Extract the required input parameters for the RANS function
-        u_pred, v_pred, w_pred, p_pred, nu_t_pred, cont = self.RANS(wind_angle, x, y, z, nu_t, rho, nu)
+        u_pred, v_pred, w_pred, p_pred, nu_t_pred, cont = self.RANS(wind_angle, x, y, z, rho, nu, activation)
         
         loss_cont = nn.MSELoss()(cont, torch.zeros_like(cont))
 

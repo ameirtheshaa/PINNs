@@ -92,58 +92,63 @@ def train_model(rank, world_size, model, activation_function, device, X_train_te
 
     def calculate_total_loss(X, y, config):
         total_loss = 0
-        data_loss = 0
-        momentum_loss = 0
-        cont_loss = 0
-
+        
         n = int(config["training"]["number_of_points_per_axis"])
+        if config["training"]["use_custom_points_for_physics_loss"]:
+            X_custom = generate_points_from_X(X, n, device)
+        else:
+            X_custom = X
+
+        rho = config["data"]["density"]
+        nu = config["data"]["kinematic_viscosity"]
 
         if config["loss_components"]["boundary_loss"]:
             wind_directions = extract_wind_angle_from_X_closest_match(X, wind_angles, tolerance=5)
             total_averaged_boundary_loss = total_boundary_loss(config, sphere_center, sphere_radius, cylinder_base_center, cylinder_radius, cylinder_height, cylinder_cap_height, cylinder_cap_radius, num_points_sphere, num_points_cylinder, x_range, y_range, z_value, inlet_velocity, num_points_boundary, wind_directions)
         else:
             total_averaged_boundary_loss = 0
+        print (f"total_averaged_boundary_loss = {total_averaged_boundary_loss}")
+        total_loss += total_averaged_boundary_loss
+
         if config["train_test"]["distributed_training"]:
             if config["loss_components"]["data_loss"]:
-                data_loss_ = model.module.compute_data_loss(X, y, activation_function)
-                data_loss += data_loss_
+                data_loss = model.module.compute_data_loss(X, y, activation_function)
+                print (f"data_loss = {data_loss}")
+                total_loss += data_loss
             if config["loss_components"]["momentum_loss"]:
-                if config["training"]["use_custom_points_for_physics_loss"]:
-                    X_custom = generate_points_from_X(X, n, device)
-                else:
-                    X_custom = X
-                momentum_loss_ = model.module.compute_physics_momentum_loss(X_custom, activation_function)
-                momentum_loss += momentum_loss_
+                momentum_loss = model.module.compute_physics_momentum_loss(X_custom, activation_function)
+                print (f"momentum_loss = {momentum_loss}")
+                total_loss += momentum_loss
             if config["loss_components"]["cont_loss"]:
-                if config["training"]["use_custom_points_for_physics_loss"]:
-                    X_custom = generate_points_from_X(X, n, device)
-                else:
-                    X_custom = X
-                cont_loss_ = model.module.compute_physics_cont_loss(X_custom, activation_function)
-                cont_loss += cont_loss_
+                cont_loss = model.module.compute_physics_cont_loss(X_custom, rho, nu, activation_function)
+                print (f"cont_loss = {cont_loss}")
+                total_loss += cont_loss
         else:
             if config["loss_components"]["data_loss"]:
-                data_loss_ = model.compute_data_loss(X, y, activation_function)
-                data_loss += data_loss_
+                data_loss = model.compute_data_loss(X, y, activation_function)
+                print (f"data_loss = {data_loss}")
+                total_loss += data_loss
             if config["loss_components"]["momentum_loss"]:
-                if config["training"]["use_custom_points_for_physics_loss"]:
-                    X_custom = generate_points_from_X(X, n, device)
-                else:
-                    X_custom = X
-                momentum_loss_ = model.compute_physics_momentum_loss(X_custom, activation_function)
-                momentum_loss += momentum_loss_
+                momentum_loss = model.compute_physics_momentum_loss(X_custom, activation_function)
+                print (f"momentum_loss = {momentum_loss}")
+                total_loss += momentum_loss
             if config["loss_components"]["cont_loss"]:
-                if config["training"]["use_custom_points_for_physics_loss"]:
-                    X_custom = generate_points_from_X(X, n, device)
-                else:
-                    X_custom = X
-                cont_loss_ = model.compute_physics_cont_loss(X_custom, activation_function)
-                cont_loss += cont_loss_
+                cont_loss = model.compute_physics_cont_loss(X_custom, rho, nu, activation_function)
+                print (f"cont_loss = {cont_loss}")
+                total_loss += cont_loss
+        
+        data_loss = locals().get('data_loss', 0)
+        total_averaged_boundary_loss = locals().get('total_averaged_boundary_loss', 0)
+        cont_loss = locals().get('cont_loss', 0)
+        momentum_loss = locals().get('momentum_loss', 0)
+        total_loss_weighted = weighting(data_loss, total_averaged_boundary_loss, cont_loss, momentum_loss)
+        print (f"total_loss_weighted = {total_loss_weighted}, time: {(time.time() - start_time):.2f} seconds")
+        print (f"total_loss = {total_loss}, time: {(time.time() - start_time):.2f} seconds")
+
         if config["loss_components"]["use_weighting"]:
-            total_loss = weighting(data_loss, total_averaged_boundary_loss, cont_loss, momentum_loss)
+            return total_loss_weighted
         else:
-            total_loss = data_loss+total_averaged_boundary_loss+cont_loss+momentum_loss
-        return total_loss
+            return total_loss
 
     def closure():
         optimizer.zero_grad()
@@ -237,10 +242,15 @@ def train_model(rank, world_size, model, activation_function, device, X_train_te
             else:
                 modified_state_dict = checkpoint['model_state_dict']
             model.load_state_dict(modified_state_dict)
+        if chosen_optimizer_key == "both_optimizers":
+            if checkpoint['epoch'] <= config[chosen_optimizer_key]["adam_epochs"]:
+                optimizer = optimizer_adam
+            else:
+                optimizer = optimizer_lbfgs
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         training_completed = checkpoint.get('training_completed', False)  # Default to False if the flag is not in the saved state
         if training_completed:
-            print("Training has already been completed., time: {(time.time() - start_time):.2f} seconds")
+            print(f"Training has already been completed., time: {(time.time() - start_time):.2f} seconds")
             return model
         else:
             start_epoch = checkpoint['epoch'] + 1
@@ -269,13 +279,13 @@ def train_model(rank, world_size, model, activation_function, device, X_train_te
         else:
             training_completed = False
         for X_batch, y_batch in train_loader:
-            if config[chosen_optimizer_key] == "both_optimizers":
+            if chosen_optimizer_key == "both_optimizers":
                 if epoch <= config[chosen_optimizer_key]["adam_epochs"]:
                     optimizer = optimizer_adam
                 else:
                     optimizer = optimizer_lbfgs
             else:
-                continue
+                print (f'optimizer = {chosen_optimizer_key}')
             current_loss = optimizer.step(closure)
             if previous_loss is not None:
                 loss_diff = abs(current_loss - previous_loss)
