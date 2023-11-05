@@ -191,6 +191,44 @@ def inverse_transform_targets(targets_normalized, target_scaler):
     targets_original = target_scaler.inverse_transform(targets_normalized)
     return targets_original
 
+def load_plotting_data(filenames, base_directory, datafolder_path, config):
+
+    dfs = []
+
+    for filename in sorted(filenames):
+        df = pd.read_csv(os.path.join(datafolder_path, filename))
+
+        index_str = filename.split('_')[-1].split('.')[0]  # Extract the index part of the filename
+        index = int(index_str)  # Convert the index to integer
+
+        meteo_data = pd.read_csv(os.path.join(datafolder_path,'meteo.csv'))
+
+        # Look up the corresponding row in the meteo.csv file
+        meteo_row = meteo_data[meteo_data['index'] == index]
+
+        # Extract the wind angle from the found row
+        wind_angle = meteo_row['cs degree'].values[0]  
+        
+        # Add new columns with unique values for each file
+        df['WindAngle'] = (wind_angle)
+        df['cos(WindAngle)'] = (np.cos(np.deg2rad(wind_angle)))
+        df['sin(WindAngle)'] = (np.sin(np.deg2rad(wind_angle)))
+        
+        # Append the modified DataFrame to the list
+        dfs.append(df)
+    
+
+    # Concatenate the list of DataFrames
+    data = pd.concat(dfs)
+
+    data.rename(columns={'Points:0': 'X', 'Points:1': 'Y', 'Points:2': 'Z', 'Velocity:0': 'Velocity_X', 'Velocity:1': 'Velocity_Y', 'Velocity:2': 'Velocity_Z'}, inplace=True)
+
+    data['Velocity_Magnitude'] = np.sqrt(data['Velocity_X']**2 + 
+                                                data['Velocity_Y']**2 + 
+                                                data['Velocity_Z']**2)
+
+    return data
+
 def load_data(filenames, base_directory, datafolder_path, device, config):
 
     rho = config["data"]["density"]
@@ -315,6 +353,39 @@ def load_data(filenames, base_directory, datafolder_path, device, config):
     y_test_tensor_skipped = y_test_tensor_skipped.to(device)
 
     return X_train_tensor, y_train_tensor, X_test_tensor, y_test_tensor, X_train_tensor_skipped, y_train_tensor_skipped, X_test_tensor_skipped, y_test_tensor_skipped, feature_scaler, target_scaler
+
+def load_data_new_angle(filenames, base_directory, datafolder_path, device, config, feature_scaler, target_scaler, wind_angle):
+
+    dfs = []
+
+    for filename in sorted(filenames):
+        df = pd.read_csv(os.path.join(datafolder_path, filename))
+        
+        # Add new columns with unique values for each file
+        df['cos(WindAngle)'] = (np.cos(np.deg2rad(wind_angle)))
+        df['sin(WindAngle)'] = (np.sin(np.deg2rad(wind_angle)))
+        
+        # Append the modified DataFrame to the list
+        dfs.append(df)
+
+    # Concatenate the list of DataFrames
+    data = pd.concat(dfs)
+
+    # Extract features from the dataframe
+    features = data[['Points:0', 'Points:1', 'Points:2', 'cos(WindAngle)', 'sin(WindAngle)']]
+    targets = data[['Pressure', 'Velocity:0', 'Velocity:1', 'Velocity:2', 'TurbVisc']]
+
+    normalized_features, normalized_targets = transform_data_with_scalers(features, targets, feature_scaler, target_scaler)
+
+    # Perform the train-test split and get the indices
+    X_train, X_test, y_train, y_test = train_test_split(normalized_features, normalized_targets,test_size=config["train_test"]["test_size_new_angle"], random_state=config["train_test"]["random_state"])
+
+    # Convert to PyTorch Tensors
+    X_test_tensor = torch.tensor(X_test, dtype=torch.float32)
+
+    X_test_tensor = X_test_tensor.to(device)
+
+    return X_test_tensor
 
 def extract_unique_wind_angles_from_X(X):
     # Extract unique pairs of sin and cos values
@@ -527,8 +598,8 @@ def evaluate_model_skipped(config, model, activation_function, X_test_tensor, y_
         predictions_column_names = ['Pressure_Predicted', 'Velocity_X_Predicted', 'Velocity_Y_Predicted', 'Velocity_Z_Predicted', 'TurbVisc_Predicted']
         predictions_dataframe = pd.DataFrame(predictions_tensor_cpu, columns=predictions_column_names)
         predictions_dataframe['Velocity_Magnitude_Predicted'] = np.sqrt(predictions_dataframe['Velocity_X_Predicted']**2 + 
-                                                predictions_dataframe['Velocity_X_Predicted']**2 + 
-                                                predictions_dataframe['Velocity_X_Predicted']**2)
+                                                predictions_dataframe['Velocity_Y_Predicted']**2 + 
+                                                predictions_dataframe['Velocity_Z_Predicted']**2)
 
         rows_list = []
         for i, var in enumerate(y_test_column_names):
@@ -608,3 +679,25 @@ def evaluate_model_skipped(config, model, activation_function, X_test_tensor, y_
                 metrics_df.to_csv(metrics_file_path, index=False)
 
     return test_predictions, test_predictions_wind_angle
+
+def evaluate_model_new_angles(config, wind_angle, model, activation_function, X_test_tensor, feature_scaler, target_scaler):
+    model.eval()
+    with torch.no_grad():
+        predictions_tensor = model(X_test_tensor, activation_function)
+
+        X_test_tensor_cpu = X_test_tensor.cpu()
+        X_test_tensor_cpu = inverse_transform_features(X_test_tensor_cpu, feature_scaler)
+        X_test_column_names = ["X", "Y", "Z", "cos(WindAngle)", "sin(WindAngle)"]
+        X_test_dataframe = pd.DataFrame(X_test_tensor_cpu, columns=X_test_column_names)
+
+        predictions_tensor_cpu = predictions_tensor.cpu()
+        predictions_tensor_cpu = inverse_transform_targets(predictions_tensor_cpu, target_scaler)
+        predictions_column_names = ['Pressure', 'Velocity_X', 'Velocity_Y', 'Velocity_Z', 'TurbVisc']
+        predictions_dataframe = pd.DataFrame(predictions_tensor_cpu, columns=predictions_column_names)
+        predictions_dataframe['Velocity_Magnitude'] = np.sqrt(predictions_dataframe['Velocity_X']**2 + 
+                                                predictions_dataframe['Velocity_Y']**2 + 
+                                                predictions_dataframe['Velocity_Z']**2)
+
+        combined_df = pd.concat([X_test_dataframe, predictions_dataframe], axis=1)
+
+    return combined_df

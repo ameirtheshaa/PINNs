@@ -28,9 +28,12 @@ def main(base_directory, config, output_zip_file=None):
         print (f'starting to plot pure data, time: {(time.time() - overall_start_time):.2f} seconds')
         plot_folder = os.path.join(output_folder, 'data_plots_output')
         os.makedirs(plot_folder, exist_ok=True)
-        data_plot_scatter_2d(datafolder_path,plot_folder)
+        df = load_plotting_data(filenames, base_directory, datafolder_path, config)
+        angles = [0,30,60,90,120,135,150,180]
+        for angle in angles:
+            plot_data_2d(df,angle,config,plot_folder)
 
-    model = PINN().to(device)
+    model = PINN(neurons = config["training"]["neuron_number"]).to(device)
     model_folder = os.path.join(output_folder, 'model_output')
     os.makedirs(model_folder, exist_ok=True)
     model_file_path = os.path.join(model_folder, 'trained_PINN_model.pth')
@@ -62,6 +65,7 @@ def main(base_directory, config, output_zip_file=None):
         # Evaluate the model
         print (f'starting to test, time: {(time.time() - overall_start_time):.2f} seconds')
         checkpoint = torch.load(model_file_path, map_location=device)
+        print (f'Model Tested at Epoch = {checkpoint["epoch"]} and Training Completed = {checkpoint["training_completed"]}')
         model.load_state_dict(checkpoint['model_state_dict'])
         data_folder = os.path.join(output_folder, 'data_output')
         os.makedirs(data_folder, exist_ok=True)
@@ -74,7 +78,7 @@ def main(base_directory, config, output_zip_file=None):
         os.makedirs(plot_folder, exist_ok=True)
         for wind_angle, df in test_predictions_wind_angle:
             if wind_angle not in config["training"]["angle_to_leave_out"]:
-                plot_prediction_2d(df,wind_angle, plot_folder)
+                plot_prediction_2d(df,wind_angle,config,plot_folder)
     ###TESTING###
 
     ###EVALUATING###
@@ -82,6 +86,7 @@ def main(base_directory, config, output_zip_file=None):
         print (f'starting to evaluate, time: {(time.time() - overall_start_time):.2f} seconds')
         # Evaluate the model
         checkpoint = torch.load(model_file_path, map_location=device)
+        print (f'Model Evaluated at Epoch = {checkpoint["epoch"]} and Training Completed = {checkpoint["training_completed"]}')
         model.load_state_dict(checkpoint['model_state_dict'])
         data_folder = os.path.join(output_folder, 'data_output_for_skipped_angle')
         os.makedirs(data_folder, exist_ok=True)
@@ -94,8 +99,28 @@ def main(base_directory, config, output_zip_file=None):
         os.makedirs(plot_folder_skipped, exist_ok=True)
         for wind_angle, df in test_predictions_wind_angle_skipped:
             if wind_angle in config["training"]["angle_to_leave_out"]:
-                plot_prediction_2d(df,wind_angle, plot_folder_skipped)
+                plot_prediction_2d(df,wind_angle,config,plot_folder_skipped)
     ###EVALUATING###
+
+    ###NEW ANGLES###
+    if config["train_test"]["evaluate_new_angles"]:
+        print (f'starting to evaluate new angles, time: {(time.time() - overall_start_time):.2f} seconds')
+        # Evaluate the model
+        checkpoint = torch.load(model_file_path, map_location=device)
+        print (f'Model Evaluated at Epoch = {checkpoint["epoch"]} and Training Completed = {checkpoint["training_completed"]}')
+        model.load_state_dict(checkpoint['model_state_dict'])
+
+        wind_angles = config["train_test"]["new_angles"]
+        for wind_angle in wind_angles:
+            normalized_X_test_tensor = load_data_new_angle(filenames, base_directory, datafolder_path, device, config, feature_scaler, target_scaler, wind_angle)
+            df = evaluate_model_new_angles(config, wind_angle, model, activation_function, normalized_X_test_tensor, feature_scaler, target_scaler)
+            print (f'model evaluated for angle = {wind_angle}, time: {(time.time() - overall_start_time):.2f} seconds')
+            if config["plotting"]["make_new_angle_plots"]:
+                print (f'starting to plot for angle = {wind_angle}, time: {(time.time() - overall_start_time):.2f} seconds')
+                plot_folder_new_angle = os.path.join(output_folder, 'plots_output_for_new_angles')
+                os.makedirs(plot_folder_new_angle, exist_ok=True)
+                plot_new_angles_2d(df,wind_angle,config,plot_folder_new_angle)
+    ###NEW ANGLES###
 
     if output_zip_file is not None:
         shutil.make_archive(output_zip_file[:-4], 'zip', output_folder)

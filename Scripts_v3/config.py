@@ -28,11 +28,12 @@ config = {
         "adam_epochs": 2000
     },
     "training": {
+        "neuron_number": 64,
         "use_epochs": True,
         "num_epochs": 1,
-        "use_batches": False,
+        "use_batches": True,
         "force": True,
-        "batch_size": 2**13,
+        "batch_size": 1,
         "angle_to_leave_out": [135],
         "loss_diff_threshold": 1e-5,
         "consecutive_count_threshold": 10,
@@ -59,26 +60,31 @@ config = {
         "workstation_CREATE": os.path.join('E:\\','ameir', "Dropbox", "School", "Graduate", "CERN", "Temp_Files", "nonlineardynamics", "ameir_PINNs", "cylinder_cell"),
         "workstation_UofA": os.path.join('C:\\', "Dropbox", "School", "Graduate", "CERN", "Temp_Files", "nonlineardynamics", "ameir_PINNs", "cylinder_cell"),
         "home_PC": os.path.join('C:\\', "Dropbox", "School", "Graduate", "CERN", "Temp_Files", "nonlineardynamics", "ameir_PINNs", "cylinder_cell"),
+        "google": "/content/"
     },
     "plotting": {
-        "make_pure_data_plots": True, 
-        "make_total_plots": True,
-        "make_individual_plots": True,
-        "make_evaluation_plots": True,
-        "plot_predictions": True,
-        "3d_scatter": True,
-        "2d_scatter": True,
-        "total_velocity": True,
-        "plot_predictions_individual": True,
-        "3d_scatter_individual": True,
-        "2d_scatter_individual": True,
-        "total_velocity_individual": True,
-        "plot_predictions_evaluation": True,
-        "3d_scatter_evaluation": True,
-        "2d_scatter_evaluation": True,
-        "total_velocity_evaluation": True,
-        "2d_scatter_data": True,
-        "total_velocity_data": True
+        "make_pure_data_plots": True,
+        "make_pure_data_plots_quiver": True, 
+        "make_pure_data_plots_total_velocity": True,
+        "make_pure_data_plots_vx": True,
+        "make_pure_data_plots_vy": True,
+        "make_pure_data_plots_vz": True,
+        "make_pure_data_plots_pressure": True,
+        "make_comparison_plots": True,
+        "make_comparison_plots_quiver": True,
+        "make_comparison_plots_all": True,
+        "make_comparison_total_velocity": True,
+        "make_comparison_vx": True,
+        "make_comparison_vy": True,
+        "make_comparison_vz": True,
+        "make_comparison_pressure": True,
+        "make_new_angle_plots": True,
+        "make_new_angle_plots_quiver": True, 
+        "make_new_angle_plots_total_velocity": True,
+        "make_new_angle_plots_vx": False,
+        "make_new_angle_plots_vy": False,
+        "make_new_angle_plots_vz": False,
+        "make_new_angle_plots_pressure": False
     },
     "data": {
         "one_file_test": False,
@@ -97,16 +103,22 @@ config = {
         "use_weighting": False
     },
     "train_test": {
-        "train": True,
+        "train": False,
         "distributed_training": False,
-        "test": True,
-        "evaluate": True,
+        "test": False,
+        "evaluate": False,
+        "evaluate_new_angles": False,
         "test_size": 0.999,
-        "random_state": 42
+        "random_state": 42,
+        "test_size_new_angle": 0.999,
+        "new_angles": [0,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,90,120,150,180]
     },
     "chosen_machine": "mac",
     "chosen_optimizer": "adam_optimizer",
-    "base_folder_name": '29102023_adam_datalossonly_infinite'
+    "base_folder_name": '21102023_adam_datalossonly_infinite',
+    # "base_folder_name": '30102023_adam_datalossonly_infinite_tanh',
+    # "base_folder_name": '29102023_both_datalosscontloss_infinite',
+    # "base_folder_name": '01112023_adam_datalossonly_infinite_64neurons',
 }
 
 if __name__ == "__main__":

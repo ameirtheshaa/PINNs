@@ -3,13 +3,13 @@ from training import *
 from plotting import *
 
 class PINN(nn.Module):
-    def __init__(self):
+    def __init__(self, neurons):
         super(PINN, self).__init__()
-        self.fc1 = nn.Linear(5, 128)
-        self.fc2 = nn.Linear(128, 128)
-        self.fc3 = nn.Linear(128, 128)
-        self.fc4 = nn.Linear(128, 128)
-        self.output_layer = nn.Linear(128, 5)
+        self.fc1 = nn.Linear(5, neurons)
+        self.fc2 = nn.Linear(neurons, neurons)
+        self.fc3 = nn.Linear(neurons, neurons)
+        self.fc4 = nn.Linear(neurons, neurons)
+        self.output_layer = nn.Linear(neurons, 5)
         
     def forward_relu(self, x):
         x = torch.relu(self.fc1(x))
