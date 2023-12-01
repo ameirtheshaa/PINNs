@@ -18,7 +18,7 @@ from PINN import *
 # which specify the state of the system at the starting time.
 ###################################################################################################
 
-def parameters():
+def parameters(config):
 	sphere_center = [500, 500, 50]
 	sphere_radius = 5
 	cylinder_base_center = [500, 570, 0]
@@ -35,7 +35,7 @@ def parameters():
 	inlet_velocity = 4.043564066
 	num_points_boundary = 1000
 
-	wind_angles = [0, 30, 60, 90, 120, 135, 150, 180]
+	wind_angles = config["training"]["all_angles"]
 
 	return sphere_center, sphere_radius, cylinder_base_center, cylinder_radius, cylinder_height, cylinder_cap_height, cylinder_cap_radius, num_points_sphere, num_points_cylinder, x_range, y_range, z_value, inlet_velocity, num_points_boundary, wind_angles
 

@@ -11,6 +11,8 @@ import pynvml
 import itertools
 import GPUtil
 import socket
+import re
+import csv
 import numpy as np
 import pandas as pd
 from pathlib import Path
@@ -124,6 +126,109 @@ def get_filenames_from_folder(path, extension, startname):
     """Get a list of filenames from the specified folder that end with a given extension."""
     return [f for f in os.listdir(path) if os.path.isfile(os.path.join(path, f)) and f.endswith(extension) and f.startswith(startname)]
 
+def process_epoch_lines(file_path):
+    epoch_lines = []
+    with open(file_path, 'r') as file:
+        for line in file:
+            if line.startswith('Epoch'):
+                epoch_lines.append(line.strip())  # Remove trailing newline character
+    return epoch_lines
+
+def concatenate_files(directory, new_file_path, save_csv_file):
+
+    # List all files and directories in the specified directory
+    file_paths = os.listdir(directory)
+
+    pattern1 = r"Epoch \[(\d+)/infinity\], Loss: ([\d.]+), Total Time elapsed: ([\d.]+) hours.*"
+    pattern2 = r"Epoch \[(\d+)/infinity\], Loss: ([\d.]+), Total Time Elapsed: ([\d.]+) hours, with free memory: ([\d.]+) GB; data_loss = ([\d.]+), cont_loss = ([\d.]+), momentum_loss = ([\d.]+), total_averaged_boundary_loss = ([\d.]+), total_loss = ([\d.]+), total_loss_weighted = ([\d.]+)"
+
+    data = []
+    epochs = []
+
+    # Open the new file in write mode
+    with open(os.path.join(directory, new_file_path), 'w') as new_file:
+        previous_time = 0
+        current_time = 0
+        for path in file_paths:
+            if path.endswith('.txt') and path.startswith('output_lo'):
+                with open(os.path.join(directory, path), 'r') as file:
+                    for line in file:
+                        match1 = re.search(pattern1, line)
+                        match2 = re.search(pattern2, line)
+                        if match1 or match2:
+                            if match1:
+                                epoch, loss, time = match1.groups()
+                                time = float(time)
+                            if match2:
+                                epoch, loss, time, free_memory, data_loss, cont_loss, momentum_loss, boundary_loss, total_loss, total_loss_weighted = match2.groups()
+                                time = float(time)
+                            if epoch not in epochs:
+                                epochs.append(epoch)
+                                if time < previous_time:
+                                    current_time += previous_time
+                                previous_time = time
+                                written_time = current_time + time
+                                if match1:
+                                    new_file.write(f'Epoch: {int(epoch)}, Loss: {float(loss)}, Time (hours): {written_time}')
+                                    new_file.write('\n') 
+                                    data.append({'Epoch': int(epoch), 'Loss': float(loss), 'Time (hours)': float(written_time)})      
+                                if match2:
+                                    new_file.write(f'Epoch: {int(epoch)}, Loss: {float(loss)}, Time (hours): {written_time}, Data Loss: {float(data_loss)}, Cont Loss: {float(cont_loss)}, Momentum Loss: {float(momentum_loss)}, Boundary Loss: {float(boundary_loss)}, Total Loss: {float(total_loss)}, Total Weighted Loss: {float(total_loss_weighted)}')
+                                    new_file.write('\n')
+                                    data.append({'Epoch': int(epoch), 'Loss': float(loss), 'Time (hours)': float(written_time), 'Data Loss': float(data_loss), 'Cont Loss': float(cont_loss), 'Momentum Loss': float(momentum_loss), 'Boundary Loss': float(boundary_loss), 'Total Loss': float(total_loss), 'Total Weighted Loss': float(total_loss_weighted)})
+                                
+    print("Files concatenated successfully into:", os.path.join(directory, new_file_path))
+
+    df = pd.DataFrame(data)
+    df = df.drop_duplicates(subset=['Epoch'])
+
+    with open(os.path.join(directory, save_csv_file), 'w', newline='') as csvfile:
+        writer = csv.writer(csvfile)
+        writer.writerow(['Epoch', 'Loss', 'Time (hours)', 'Data Loss', 'Cont Loss', 'Momentum Loss', 'Boundary Loss', 'Total Loss', 'Total Weighted Loss'])
+        for i in df.values:
+            writer.writerow(i)
+
+    return df
+
+def get_log_analysis(directory):
+    new_file_path = 'all_output_log.txt'
+    save_csv_file = 'all_epochs.csv'
+    
+    numtoplot = 200
+
+    df = concatenate_files(directory, new_file_path, save_csv_file)
+    numtoskip = int(len(df)/numtoplot)
+    df = df[(df['Epoch'] - 5) % numtoskip == 0]
+    
+    return df
+
+def convert_state_dict(config, state_dict):
+
+    if config["train_test"]["distributed_training"]:
+        if any(key.startswith("module.module.") for key in state_dict):
+            modified_state_dict = {k.replace("module.module.", "module."): v for k, v in state_dict.items()}
+        elif not any(key.startswith("module.") for key in state_dict):
+            modified_state_dict = {"module." + k: v for k, v in state_dict.items()}
+        else:
+            modified_state_dict = state_dict
+    else:
+        if any(key.startswith("module.") for key in state_dict):
+            modified_state_dict = {k.replace("module.", ""): v for k, v in state_dict.items()}
+        else:
+            modified_state_dict = state_dict
+
+    new_state_dict = {}
+    for old_key, value in modified_state_dict.items():
+        new_key = old_key
+        new_key = new_key.replace('fc1', 'layers.0')
+        new_key = new_key.replace('fc2', 'layers.2')
+        new_key = new_key.replace('fc3', 'layers.4')
+        new_key = new_key.replace('fc4', 'layers.6')
+        new_key = new_key.replace('output_layer', 'layers.8')
+        new_state_dict[new_key] = value
+
+    return new_state_dict
+
 def get_optimizer(model, optimizer_config):
     optimizer_type = optimizer_config["type"]
     if optimizer_type == "both_optimizers":
@@ -197,17 +302,7 @@ def load_plotting_data(filenames, base_directory, datafolder_path, config):
 
     for filename in sorted(filenames):
         df = pd.read_csv(os.path.join(datafolder_path, filename))
-
-        index_str = filename.split('_')[-1].split('.')[0]  # Extract the index part of the filename
-        index = int(index_str)  # Convert the index to integer
-
-        meteo_data = pd.read_csv(os.path.join(datafolder_path,'meteo.csv'))
-
-        # Look up the corresponding row in the meteo.csv file
-        meteo_row = meteo_data[meteo_data['index'] == index]
-
-        # Extract the wind angle from the found row
-        wind_angle = meteo_row['cs degree'].values[0]  
+        wind_angle = int(filename.split('_')[-1].split('.')[0])  # Extract the index part of the filename
         
         # Add new columns with unique values for each file
         df['WindAngle'] = (wind_angle)
@@ -241,17 +336,7 @@ def load_data(filenames, base_directory, datafolder_path, device, config):
     if angle_to_leave_out is None:
         for filename in sorted(filenames):
             df = pd.read_csv(os.path.join(datafolder_path, filename))
-
-            index_str = filename.split('_')[-1].split('.')[0]  # Extract the index part of the filename
-            index = int(index_str)  # Convert the index to integer
-
-            meteo_data = pd.read_csv(os.path.join(datafolder_path,'meteo.csv'))
-
-            # Look up the corresponding row in the meteo.csv file
-            meteo_row = meteo_data[meteo_data['index'] == index]
-
-            # Extract the wind angle from the found row
-            wind_angle = meteo_row['cs degree'].values[0]  
+            wind_angle = int(filename.split('_')[-1].split('.')[0])  # Extract the index part of the filename
             
             # Add new columns with unique values for each file
             df['cos(WindAngle)'] = (np.cos(np.deg2rad(wind_angle)))
@@ -262,20 +347,10 @@ def load_data(filenames, base_directory, datafolder_path, device, config):
     else:
         for filename in sorted(filenames):
             df = pd.read_csv(os.path.join(datafolder_path, filename))
-
-            index_str = filename.split('_')[-1].split('.')[0]  # Extract the index part of the filename
-            index = int(index_str)  # Convert the index to integer
-
-            meteo_data = pd.read_csv(os.path.join(datafolder_path,'meteo.csv'))
-
-            # Look up the corresponding row in the meteo.csv file
-            meteo_row = meteo_data[meteo_data['index'] == index]
-
-            # Extract the wind angle from the found row
-            wind_angle = meteo_row['cs degree'].values[0]
+            wind_angle = int(filename.split('_')[-1].split('.')[0])  # Extract the index part of the filename
 
             if wind_angle in angle_to_leave_out:
-                print (f'Skipping Angle = {wind_angle} degrees')
+                pass
             else:
                 # Add new columns with unique values for each file
                 df['cos(WindAngle)'] = (np.cos(np.deg2rad(wind_angle)))
@@ -288,8 +363,8 @@ def load_data(filenames, base_directory, datafolder_path, device, config):
     data = pd.concat(dfs)
 
     # Extract features from the dataframe
-    features = data[['Points:0', 'Points:1', 'Points:2', 'cos(WindAngle)', 'sin(WindAngle)']]
-    targets = data[['Pressure', 'Velocity:0', 'Velocity:1', 'Velocity:2', 'TurbVisc']]
+    features = data[config["training"]["input_params"]]
+    targets = data[config["training"]["output_params"]]
 
     feature_scaler, target_scaler = initialize_and_fit_scalers(features, targets, config)
     normalized_features, normalized_targets = transform_data_with_scalers(features, targets, feature_scaler, target_scaler)
@@ -310,20 +385,10 @@ def load_data(filenames, base_directory, datafolder_path, device, config):
 
     for filename in sorted(filenames):
         df = pd.read_csv(os.path.join(datafolder_path, filename))
-
-        index_str = filename.split('_')[-1].split('.')[0]  # Extract the index part of the filename
-        index = int(index_str)  # Convert the index to integer
-
-        meteo_data = pd.read_csv(os.path.join(datafolder_path,'meteo.csv'))
-
-        # Look up the corresponding row in the meteo.csv file
-        meteo_row = meteo_data[meteo_data['index'] == index]
-
-        # Extract the wind angle from the found row
-        wind_angle = meteo_row['cs degree'].values[0]
+        wind_angle = int(filename.split('_')[-1].split('.')[0])  # Extract the index part of the filename
 
         if wind_angle not in angle_to_leave_out:
-            print (f'Angle = {wind_angle} degrees part of dataset!')
+            pass
         else:
             # Add new columns with unique values for each file
             df['cos(WindAngle)'] = (np.cos(np.deg2rad(wind_angle)))
@@ -335,8 +400,8 @@ def load_data(filenames, base_directory, datafolder_path, device, config):
     data_skipped = pd.concat(dfs_skipped)
 
     # Extract features from the dataframe
-    features_skipped = data_skipped[['Points:0', 'Points:1', 'Points:2', 'cos(WindAngle)', 'sin(WindAngle)']]
-    targets_skipped = data_skipped[['Pressure', 'Velocity:0', 'Velocity:1', 'Velocity:2', 'TurbVisc']]
+    features_skipped = data_skipped[config["training"]["input_params"]]
+    targets_skipped = data_skipped[config["training"]["output_params"]]
 
     normalized_features_skipped, normalized_targets_skipped = transform_data_with_scalers(features_skipped, targets_skipped, feature_scaler, target_scaler)
 
@@ -372,8 +437,8 @@ def load_data_new_angle(filenames, base_directory, datafolder_path, device, conf
     data = pd.concat(dfs)
 
     # Extract features from the dataframe
-    features = data[['Points:0', 'Points:1', 'Points:2', 'cos(WindAngle)', 'sin(WindAngle)']]
-    targets = data[['Pressure', 'Velocity:0', 'Velocity:1', 'Velocity:2', 'TurbVisc']]
+    features = data[config["training"]["input_params"]]
+    targets = data[config["training"]["output_params"]]
 
     normalized_features, normalized_targets = transform_data_with_scalers(features, targets, feature_scaler, target_scaler)
 
@@ -460,23 +525,24 @@ def generate_points_from_X(X, n, device):
 
     return points_tensor
 
-def evaluate_model(model, activation_function, X_test_tensor, y_test_tensor, feature_scaler, target_scaler, output_folder):
+def evaluate_model(config, model, X_test_tensor, y_test_tensor, feature_scaler, target_scaler, output_folder):
     model.eval()
     test_predictions = []
     test_predictions_wind_angle = []
     with torch.no_grad():
-        predictions_tensor = model(X_test_tensor, activation_function)
+        predictions_tensor = model(X_test_tensor)
 
-        wind_angles = [0, 30, 60, 90, 120, 135, 150, 180]
+        wind_angles = config["training"]["all_angles"]
 
         X_test_tensor_cpu = X_test_tensor.cpu()
         X_test_tensor_cpu = inverse_transform_features(X_test_tensor_cpu, feature_scaler)
-        X_test_column_names = ["X", "Y", "Z", "cos(WindAngle)", "sin(WindAngle)"]
+        X_test_column_names = config["training"]["input_params_modf"]
         X_test_dataframe = pd.DataFrame(X_test_tensor_cpu, columns=X_test_column_names)
 
         y_test_tensor_cpu = y_test_tensor.cpu()
         y_test_tensor_cpu = inverse_transform_targets(y_test_tensor_cpu, target_scaler)
-        y_test_column_names = ['Pressure_Actual', 'Velocity_X_Actual', 'Velocity_Y_Actual', 'Velocity_Z_Actual', 'TurbVisc_Actual']
+        output_column_names = config["training"]["output_params_modf"]
+        y_test_column_names = [item + "_Actual" for item in output_column_names]
         y_test_dataframe = pd.DataFrame(y_test_tensor_cpu, columns=y_test_column_names)
         y_test_dataframe['Velocity_Magnitude_Actual'] = np.sqrt(y_test_dataframe['Velocity_X_Actual']**2 + 
                                                 y_test_dataframe['Velocity_Y_Actual']**2 + 
@@ -485,117 +551,7 @@ def evaluate_model(model, activation_function, X_test_tensor, y_test_tensor, fea
 
         predictions_tensor_cpu = predictions_tensor.cpu()
         predictions_tensor_cpu = inverse_transform_targets(predictions_tensor_cpu, target_scaler)
-        predictions_column_names = ['Pressure_Predicted', 'Velocity_X_Predicted', 'Velocity_Y_Predicted', 'Velocity_Z_Predicted', 'TurbVisc_Predicted']
-        predictions_dataframe = pd.DataFrame(predictions_tensor_cpu, columns=predictions_column_names)
-        predictions_dataframe['Velocity_Magnitude_Predicted'] = np.sqrt(predictions_dataframe['Velocity_X_Predicted']**2 + 
-                                                predictions_dataframe['Velocity_X_Predicted']**2 + 
-                                                predictions_dataframe['Velocity_X_Predicted']**2)
-
-        rows_list = []
-        for i, var in enumerate(y_test_column_names):
-            var_cleaned = var.replace('_Actual', '')
-            actuals = y_test_dataframe.iloc[:, i]
-            preds = predictions_dataframe.iloc[:, i]
-
-            mse = sklearn.metrics.mean_squared_error(actuals, preds)
-            rmse = np.sqrt(mse)
-            mae = sklearn.metrics.mean_absolute_error(actuals, preds)
-            r2 = sklearn.metrics.r2_score(actuals, preds)
-            
-            # Append the new row as a dictionary to the list
-            rows_list.append({
-                'Variable': var_cleaned, 
-                'MSE': mse,
-                'RMSE': rmse,
-                'MAE': mae,
-                'R2': r2
-            })
-        
-        data_folder = os.path.join(output_folder, f'data_output_for_wind_angle_all')
-        os.makedirs(data_folder, exist_ok=True)
-
-        combined_df = pd.concat([X_test_dataframe, y_test_dataframe, predictions_dataframe], axis=1)
-        test_predictions.append([combined_df])
-        combined_file_path = os.path.join(data_folder, f'combined_actuals_and_predictions_for_wind_angle_all.csv')
-        combined_df.to_csv(combined_file_path, index=False)
-
-        metrics_df = pd.DataFrame(rows_list)   
-        metrics_file_path = os.path.join(data_folder, f'metrics_for_wind_angle_all.csv')
-        metrics_df.to_csv(metrics_file_path, index=False)
-
-        for wind_angle in wind_angles:
-            lower_bound = wind_angle - 2
-            upper_bound = wind_angle + 2
-
-            X_test_dataframe['WindAngle_rad'] = np.arctan2(X_test_dataframe['sin(WindAngle)'], X_test_dataframe['cos(WindAngle)'])
-            X_test_dataframe['WindAngle'] = X_test_dataframe['WindAngle_rad'].apply(lambda x: int(np.ceil(np.degrees(x))))
-            mask = X_test_dataframe['WindAngle'].between(lower_bound, upper_bound)
-            filtered_X_test_dataframe = X_test_dataframe.loc[mask]
-
-            filtered_y_test = y_test_dataframe.loc[mask]
-            filtered_predictions = predictions_dataframe.loc[mask]
-
-            if len(filtered_predictions)!= 0 and len(filtered_y_test)!=0:
-                rows_list = []
-                for i, var in enumerate(y_test_column_names):
-                    var_cleaned = var.replace('_Actual', '')
-                    actuals = filtered_y_test.iloc[:, i]
-                    preds = filtered_predictions.iloc[:, i]
-
-                    mse = sklearn.metrics.mean_squared_error(actuals, preds)
-                    rmse = np.sqrt(mse)
-                    mae = sklearn.metrics.mean_absolute_error(actuals, preds)
-                    r2 = sklearn.metrics.r2_score(actuals, preds)
-                    
-                    # Append the new row as a dictionary to the list
-                    rows_list.append({
-                        'Variable': var_cleaned, 
-                        'MSE': mse,
-                        'RMSE': rmse,
-                        'MAE': mae,
-                        'R2': r2
-                    })
-                
-                data_folder = os.path.join(output_folder, f'data_output_for_wind_angle_{wind_angle}')
-                os.makedirs(data_folder, exist_ok=True)
-
-                combined_df = pd.concat([filtered_X_test_dataframe, filtered_y_test, filtered_predictions], axis=1)
-                test_predictions_wind_angle.append([wind_angle, combined_df])
-                combined_file_path = os.path.join(data_folder, f'combined_actuals_and_predictions_for_wind_angle_{wind_angle}.csv')
-                combined_df.to_csv(combined_file_path, index=False)
-
-                metrics_df = pd.DataFrame(rows_list)   
-                metrics_file_path = os.path.join(data_folder, f'metrics_for_wind_angle_{wind_angle}.csv')
-                metrics_df.to_csv(metrics_file_path, index=False)
-
-    return test_predictions, test_predictions_wind_angle
-
-def evaluate_model_skipped(config, model, activation_function, X_test_tensor, y_test_tensor, feature_scaler, target_scaler, output_folder):
-    model.eval()
-    test_predictions = []
-    test_predictions_wind_angle = []
-    with torch.no_grad():
-        predictions_tensor = model(X_test_tensor, activation_function)
-
-        wind_angles = config["training"]["angle_to_leave_out"]
-
-        X_test_tensor_cpu = X_test_tensor.cpu()
-        X_test_tensor_cpu = inverse_transform_features(X_test_tensor_cpu, feature_scaler)
-        X_test_column_names = ["X", "Y", "Z", "cos(WindAngle)", "sin(WindAngle)"]
-        X_test_dataframe = pd.DataFrame(X_test_tensor_cpu, columns=X_test_column_names)
-
-        y_test_tensor_cpu = y_test_tensor.cpu()
-        y_test_tensor_cpu = inverse_transform_targets(y_test_tensor_cpu, target_scaler)
-        y_test_column_names = ['Pressure_Actual', 'Velocity_X_Actual', 'Velocity_Y_Actual', 'Velocity_Z_Actual', 'TurbVisc_Actual']
-        y_test_dataframe = pd.DataFrame(y_test_tensor_cpu, columns=y_test_column_names)
-        y_test_dataframe['Velocity_Magnitude_Actual'] = np.sqrt(y_test_dataframe['Velocity_X_Actual']**2 + 
-                                                y_test_dataframe['Velocity_Y_Actual']**2 + 
-                                                y_test_dataframe['Velocity_Z_Actual']**2)
-
-
-        predictions_tensor_cpu = predictions_tensor.cpu()
-        predictions_tensor_cpu = inverse_transform_targets(predictions_tensor_cpu, target_scaler)
-        predictions_column_names = ['Pressure_Predicted', 'Velocity_X_Predicted', 'Velocity_Y_Predicted', 'Velocity_Z_Predicted', 'TurbVisc_Predicted']
+        predictions_column_names = [item + "_Predicted" for item in output_column_names]
         predictions_dataframe = pd.DataFrame(predictions_tensor_cpu, columns=predictions_column_names)
         predictions_dataframe['Velocity_Magnitude_Predicted'] = np.sqrt(predictions_dataframe['Velocity_X_Predicted']**2 + 
                                                 predictions_dataframe['Velocity_Y_Predicted']**2 + 
@@ -680,23 +636,142 @@ def evaluate_model_skipped(config, model, activation_function, X_test_tensor, y_
 
     return test_predictions, test_predictions_wind_angle
 
-def evaluate_model_new_angles(config, wind_angle, model, activation_function, X_test_tensor, feature_scaler, target_scaler):
+def evaluate_model_skipped(config, model, X_test_tensor, y_test_tensor, feature_scaler, target_scaler, output_folder):
     model.eval()
+    test_predictions = []
+    test_predictions_wind_angle = []
     with torch.no_grad():
-        predictions_tensor = model(X_test_tensor, activation_function)
+        predictions_tensor = model(X_test_tensor)
+
+        wind_angles = config["training"]["angle_to_leave_out"]
 
         X_test_tensor_cpu = X_test_tensor.cpu()
         X_test_tensor_cpu = inverse_transform_features(X_test_tensor_cpu, feature_scaler)
-        X_test_column_names = ["X", "Y", "Z", "cos(WindAngle)", "sin(WindAngle)"]
+        X_test_column_names = config["training"]["input_params_modf"]
+        X_test_dataframe = pd.DataFrame(X_test_tensor_cpu, columns=X_test_column_names)
+
+        y_test_tensor_cpu = y_test_tensor.cpu()
+        y_test_tensor_cpu = inverse_transform_targets(y_test_tensor_cpu, target_scaler)
+        output_column_names = config["training"]["output_params_modf"]
+        y_test_column_names = [item + "_Actual" for item in output_column_names]
+        y_test_dataframe = pd.DataFrame(y_test_tensor_cpu, columns=y_test_column_names)
+        y_test_dataframe['Velocity_Magnitude_Actual'] = np.sqrt(y_test_dataframe['Velocity_X_Actual']**2 + 
+                                                y_test_dataframe['Velocity_Y_Actual']**2 + 
+                                                y_test_dataframe['Velocity_Z_Actual']**2)
+
+
+        predictions_tensor_cpu = predictions_tensor.cpu()
+        predictions_tensor_cpu = inverse_transform_targets(predictions_tensor_cpu, target_scaler)
+        predictions_column_names = [item + "_Predicted" for item in output_column_names]
+        predictions_dataframe = pd.DataFrame(predictions_tensor_cpu, columns=predictions_column_names)
+        predictions_dataframe['Velocity_Magnitude_Predicted'] = np.sqrt(predictions_dataframe['Velocity_X_Predicted']**2 + 
+                                                predictions_dataframe['Velocity_Y_Predicted']**2 + 
+                                                predictions_dataframe['Velocity_Z_Predicted']**2)
+
+        rows_list = []
+        for i, var in enumerate(y_test_column_names):
+            var_cleaned = var.replace('_Actual', '')
+            actuals = y_test_dataframe.iloc[:, i]
+            preds = predictions_dataframe.iloc[:, i]
+
+            mse = sklearn.metrics.mean_squared_error(actuals, preds)
+            rmse = np.sqrt(mse)
+            mae = sklearn.metrics.mean_absolute_error(actuals, preds)
+            r2 = sklearn.metrics.r2_score(actuals, preds)
+            
+            # Append the new row as a dictionary to the list
+            rows_list.append({
+                'Variable': var_cleaned, 
+                'MSE': mse,
+                'RMSE': rmse,
+                'MAE': mae,
+                'R2': r2
+            })
+        
+        data_folder = os.path.join(output_folder, f'data_output_for_wind_angle_all')
+        os.makedirs(data_folder, exist_ok=True)
+
+        combined_df = pd.concat([X_test_dataframe, y_test_dataframe, predictions_dataframe], axis=1)
+        test_predictions.append([combined_df])
+        combined_file_path = os.path.join(data_folder, f'combined_actuals_and_predictions_for_wind_angle_all.csv')
+        combined_df.to_csv(combined_file_path, index=False)
+
+        metrics_df = pd.DataFrame(rows_list)   
+        metrics_file_path = os.path.join(data_folder, f'metrics_for_wind_angle_all.csv')
+        metrics_df.to_csv(metrics_file_path, index=False)
+
+        for wind_angle in wind_angles:
+            lower_bound = wind_angle - 2
+            upper_bound = wind_angle + 2
+
+            X_test_dataframe['WindAngle_rad'] = np.arctan2(X_test_dataframe['sin(WindAngle)'], X_test_dataframe['cos(WindAngle)'])
+            X_test_dataframe['WindAngle'] = X_test_dataframe['WindAngle_rad'].apply(lambda x: int(np.ceil(np.degrees(x))))
+            mask = X_test_dataframe['WindAngle'].between(lower_bound, upper_bound)
+            filtered_X_test_dataframe = X_test_dataframe.loc[mask]
+
+            filtered_y_test = y_test_dataframe.loc[mask]
+            filtered_predictions = predictions_dataframe.loc[mask]
+
+            if len(filtered_predictions)!= 0 and len(filtered_y_test)!=0:
+                rows_list = []
+                for i, var in enumerate(y_test_column_names):
+                    var_cleaned = var.replace('_Actual', '')
+                    actuals = filtered_y_test.iloc[:, i]
+                    preds = filtered_predictions.iloc[:, i]
+
+                    mse = sklearn.metrics.mean_squared_error(actuals, preds)
+                    rmse = np.sqrt(mse)
+                    mae = sklearn.metrics.mean_absolute_error(actuals, preds)
+                    r2 = sklearn.metrics.r2_score(actuals, preds)
+                    
+                    # Append the new row as a dictionary to the list
+                    rows_list.append({
+                        'Variable': var_cleaned, 
+                        'MSE': mse,
+                        'RMSE': rmse,
+                        'MAE': mae,
+                        'R2': r2
+                    })
+                
+                data_folder = os.path.join(output_folder, f'data_output_for_wind_angle_{wind_angle}')
+                os.makedirs(data_folder, exist_ok=True)
+
+                combined_df = pd.concat([filtered_X_test_dataframe, filtered_y_test, filtered_predictions], axis=1)
+                test_predictions_wind_angle.append([wind_angle, combined_df])
+                combined_file_path = os.path.join(data_folder, f'combined_actuals_and_predictions_for_wind_angle_{wind_angle}.csv')
+                combined_df.to_csv(combined_file_path, index=False)
+
+                metrics_df = pd.DataFrame(rows_list)   
+                metrics_file_path = os.path.join(data_folder, f'metrics_for_wind_angle_{wind_angle}.csv')
+                metrics_df.to_csv(metrics_file_path, index=False)
+
+    return test_predictions, test_predictions_wind_angle
+
+def evaluate_model_new_angles(config, wind_angle, model, X_test_tensor, feature_scaler, target_scaler):
+    model.eval()
+    with torch.no_grad():
+        predictions_tensor = model(X_test_tensor)
+
+        X_test_tensor_cpu = X_test_tensor.cpu()
+        X_test_tensor_cpu = inverse_transform_features(X_test_tensor_cpu, feature_scaler)
+        X_test_column_names = config["training"]["input_params_modf"]
         X_test_dataframe = pd.DataFrame(X_test_tensor_cpu, columns=X_test_column_names)
 
         predictions_tensor_cpu = predictions_tensor.cpu()
         predictions_tensor_cpu = inverse_transform_targets(predictions_tensor_cpu, target_scaler)
-        predictions_column_names = ['Pressure', 'Velocity_X', 'Velocity_Y', 'Velocity_Z', 'TurbVisc']
+        predictions_column_names = config["training"]["output_params_modf"]
         predictions_dataframe = pd.DataFrame(predictions_tensor_cpu, columns=predictions_column_names)
         predictions_dataframe['Velocity_Magnitude'] = np.sqrt(predictions_dataframe['Velocity_X']**2 + 
                                                 predictions_dataframe['Velocity_Y']**2 + 
                                                 predictions_dataframe['Velocity_Z']**2)
+
+        predictions_tensor_cpu = predictions_tensor.cpu()
+        predictions_tensor_cpu = inverse_transform_targets(predictions_tensor_cpu, target_scaler)
+        predictions_column_names = [item + "_Predicted" for item in output_column_names]
+        predictions_dataframe = pd.DataFrame(predictions_tensor_cpu, columns=predictions_column_names)
+        predictions_dataframe['Velocity_Magnitude_Predicted'] = np.sqrt(predictions_dataframe['Velocity_X_Predicted']**2 + 
+                                                predictions_dataframe['Velocity_Y_Predicted']**2 + 
+                                                predictions_dataframe['Velocity_Z_Predicted']**2)
 
         combined_df = pd.concat([X_test_dataframe, predictions_dataframe], axis=1)
 

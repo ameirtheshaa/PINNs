@@ -28,33 +28,20 @@ config = {
         "adam_epochs": 2000
     },
     "training": {
-        "number_of_hidden_layers": 4,
         "neuron_number": 128,
-        "input_params": ['Points:0', 'Points:1', 'Points:2', 'cos(WindAngle)', 'sin(WindAngle)'], 
-        "input_params_modf": ["X", "Y", "Z", "cos(WindAngle)", "sin(WindAngle)"], 
-        "output_params": ['Pressure', 'Velocity:0', 'Velocity:1', 'Velocity:2', 'TurbVisc'],
-        "output_params_modf": ['Pressure', 'Velocity_X', 'Velocity_Y', 'Velocity_Z', 'TurbVisc'],
-        "activation_function": nn.ReLU,
-        # "activation_function": nn.Sigmoid,
-        # "activation_function": nn.Tanh,
-        "batch_normalization": False,
-        "dropout_rate": None,
         "use_epochs": False,
         "num_epochs": 1000,
-        "use_batches": True,
+        "use_batches": False,
         "force": True,
-        "batch_size": 2,
-        # "angle_to_leave_out": [135],
-        # "angles_to_train": [0,30,60,90,120,150,180],
-        # "all_angles": [0,30,60,90,120,135,150,180],
+        "batch_size": 2**13,
         "angle_to_leave_out": [135],
-        "angles_to_train": [0,15,30,45,60,75,90,105,120,150,165,180],
-        "all_angles": [0,15,30,45,60,75,90,105,120,135,150,165,180],
         "loss_diff_threshold": 1e-5,
         "consecutive_count_threshold": 10,
-        "change_scaler": False,
+        "change_scaler": True,
         "scaler": "min_max",
         "min_max_scaler_range": (-1,1),
+        "change_activation_function": False,
+        "activation_function": "tanh",
         "use_custom_points_for_physics_loss": False,
         "number_of_points_per_axis": 3*1E2
     },
@@ -70,14 +57,10 @@ config = {
     "machine": {
         "lxplus": '/afs/cern.ch/user/a/abinakbe/PINNs/cylinder_cell',
         "mac": os.path.join(os.path.expanduser("~"), "Dropbox", "School", "Graduate", "CERN", "Temp_Files", "nonlineardynamics", "ameir_PINNs", "cylinder_cell"),
-        "mac_test": os.path.join(os.path.expanduser("~"), "Dropbox"),
         "workstation_CREATE": os.path.join('E:\\','ameir', "Dropbox", "School", "Graduate", "CERN", "Temp_Files", "nonlineardynamics", "ameir_PINNs", "cylinder_cell"),
-        "laptop_CREATE": os.path.join('E:\\', "Dropbox", "School", "Graduate", "CERN", "Temp_Files", "nonlineardynamics", "ameir_PINNs", "cylinder_cell"),
-        "laptop_CREATE_NTU": os.path.join('D:\\', "Dropbox", "School", "Graduate", "CERN", "Temp_Files", "nonlineardynamics", "ameir_PINNs", "cylinder_cell"),
-        "laptop_CREATE_NTU_test": os.path.join('D:\\', "Dropbox"),
         "workstation_UofA": os.path.join('C:\\', "Dropbox", "School", "Graduate", "CERN", "Temp_Files", "nonlineardynamics", "ameir_PINNs", "cylinder_cell"),
         "home_PC": os.path.join('C:\\', "Dropbox", "School", "Graduate", "CERN", "Temp_Files", "nonlineardynamics", "ameir_PINNs", "cylinder_cell"),
-        "google": "/content/drive/Othercomputers/My Mac mini/cylinder_cell"
+        "google": "/content/"
     },
     "plotting": {
         "make_pure_data_plots": True,
@@ -92,13 +75,13 @@ config = {
         "make_pure_data_plots_turbvisc": True,
         "make_comparison_plots": True,
         "make_comparison_plots_quiver": True,
-        "make_comparison_plots_all": False,
+        "make_comparison_plots_all": True,
         "make_comparison_plots_total_velocity_arrow": True,
         "make_comparison_plots_total_velocity": True,
-        "make_comparison_plots_vx": False,
-        "make_comparison_plots_vy": False,
-        "make_comparison_plots_vz": False,
-        "make_comparison_plots_pressure": False,
+        "make_comparison_plots_vx": True,
+        "make_comparison_plots_vy": True,
+        "make_comparison_plots_vz": True,
+        "make_comparison_plots_pressure": True,
         "make_comparison_plots_turbvisc_arrow": True,
         "make_comparison_plots_turbvisc": True,
         "make_new_angle_plots": True,
@@ -129,22 +112,19 @@ config = {
         "use_weighting": False
     },
     "train_test": {
-        "train": False,
+        "train": True,
         "distributed_training": False,
         "test": False,
         "evaluate": False,
         "evaluate_new_angles": False,
-        "test_size": 0.999,
+        "test_size": 0.0001,
         "random_state": 42,
         "test_size_new_angle": 0.999,
-        "new_angles": [0,15,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,75,90,105,120,135,150,165,180]
+        "new_angles": [0,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,90,120,150,180]
     },
-    "chosen_machine": "laptop_CREATE_NTU_test",
+    "chosen_machine": "mac",
     "chosen_optimizer": "adam_optimizer",
-    # "base_folder_names": ["01112023_adam_datalossonly_infinite_64neurons", "21102023_adam_datalossonly_infinite", "30102023_adam_datalossonly_infinite_tanh", "29102023_both_datalosscontloss_infinite","29102023_both_datalosscontloss_infinite_colab"]
-    # "base_folder_names": ["11112023_both_datalosscontloss_infinite", "21102023_adam_datalossonly_infinite", "30102023_adam_datalossonly_infinite_tanh", "29102023_both_datalosscontloss_infinite","29102023_both_datalosscontloss_infinite_colab"]
-    # "base_folder_names": ["11112023_both_datalosscontloss_infinite", "21102023_adam_datalossonly_infinite", "26112023_adam_datalossonly_infinite", "29102023_both_datalosscontloss_infinite"]
-    "base_folder_names": ["29102023_both_datalosscontloss_infinite"]
+    "base_folder_name": 'done/PC/21102023_adam_datalossonly_infinite_min_max'
 }
 
 if __name__ == "__main__":
@@ -157,7 +137,5 @@ if __name__ == "__main__":
         else:
             print("Please provide the base directory and output zip file as arguments.")
     else:
-        for base_directory_ in config["base_folder_names"]:
-            base_directory = os.path.join(config["machine"][chosen_machine], base_directory_)
-            print (f"doing {base_directory_} now!")
-            main(base_directory, config)
+        base_directory = os.path.join(config["machine"][chosen_machine], config["base_folder_name"])
+        main(base_directory, config)

@@ -3,7 +3,7 @@ from boundary import *
 from PINN import *
 from weighting import *
 
-def train_model(rank, world_size, model, activation_function, device, X_train_tensor, y_train_tensor, config, batch_size, model_file_path, log_folder, epochs):
+def train_model(rank, world_size, model, device, X_train_tensor, y_train_tensor, config, batch_size, model_file_path, log_folder, epochs):
     if config["train_test"]["distributed_training"]:
         # Initialize distributed training environment
         backend = config["distributed_training"]["backend"]
@@ -52,7 +52,7 @@ def train_model(rank, world_size, model, activation_function, device, X_train_te
     
     model.train()
     
-    sphere_center, sphere_radius, cylinder_base_center, cylinder_radius, cylinder_height, cylinder_cap_height, cylinder_cap_radius, num_points_sphere, num_points_cylinder, x_range, y_range, z_value, inlet_velocity, num_points_boundary, wind_angles = parameters()
+    sphere_center, sphere_radius, cylinder_base_center, cylinder_radius, cylinder_height, cylinder_cap_height, cylinder_cap_radius, num_points_sphere, num_points_cylinder, x_range, y_range, z_value, inlet_velocity, num_points_boundary, wind_angles = parameters(config)
 
     def total_boundary_loss(config, sphere_center, sphere_radius, cylinder_base_center, cylinder_radius, cylinder_height, cylinder_cap_height, cylinder_cap_radius, num_points_sphere, num_points_cylinder, x_range, y_range, z_value, inlet_velocity, num_points_boundary, wind_angles):
         """
@@ -74,23 +74,24 @@ def train_model(rank, world_size, model, activation_function, device, X_train_te
             X_inlet, y_inlet = sample_domain_boundary(device, x_range, y_range, z_value, wind_direction, inlet_velocity, num_points_boundary)
 
             if config["train_test"]["distributed_training"]:
-                no_slip_loss = model.module.compute_boundary_loss(X_no_slip, y_no_slip, activation_function)
-                inlet_loss = model.module.compute_boundary_loss(X_inlet, y_inlet, activation_function)
+                no_slip_loss = model.module.compute_boundary_loss(X_no_slip, y_no_slip)
+                inlet_loss = model.module.compute_boundary_loss(X_inlet, y_inlet)
             else:
-                no_slip_loss = model.compute_boundary_loss(X_no_slip, y_no_slip, activation_function)
-                inlet_loss = model.compute_boundary_loss(X_inlet, y_inlet, activation_function)
+                no_slip_loss = model.compute_boundary_loss(X_no_slip, y_no_slip)
+                inlet_loss = model.compute_boundary_loss(X_inlet, y_inlet)
             
             total_loss = no_slip_loss + inlet_loss
 
             boundary_losses.append([wind_direction,total_loss])
 
         loss_values = [loss[1] for loss in boundary_losses]
-        loss_tensor = torch.tensor(loss_values)
-        total_averaged_boundary_loss = loss_tensor.mean().item()
-    
-        return total_averaged_boundary_loss
+        loss_tensor = torch.stack(loss_values).mean()
+        
+        return loss_tensor
 
     def calculate_total_loss(X, y, config):
+        input_params = config["training"]["input_params"]
+        output_params = config["training"]["output_params"]
         total_loss = 0
         
         n = int(config["training"]["number_of_points_per_axis"])
@@ -107,34 +108,28 @@ def train_model(rank, world_size, model, activation_function, device, X_train_te
             total_averaged_boundary_loss = total_boundary_loss(config, sphere_center, sphere_radius, cylinder_base_center, cylinder_radius, cylinder_height, cylinder_cap_height, cylinder_cap_radius, num_points_sphere, num_points_cylinder, x_range, y_range, z_value, inlet_velocity, num_points_boundary, wind_directions)
         else:
             total_averaged_boundary_loss = 0
-        print (f"total_averaged_boundary_loss = {total_averaged_boundary_loss}")
+
         total_loss += total_averaged_boundary_loss
 
         if config["train_test"]["distributed_training"]:
             if config["loss_components"]["data_loss"]:
-                data_loss = model.module.compute_data_loss(X, y, activation_function)
-                print (f"data_loss = {data_loss}")
+                data_loss = model.module.compute_data_loss(X, y)
                 total_loss += data_loss
             if config["loss_components"]["momentum_loss"]:
-                momentum_loss = model.module.compute_physics_momentum_loss(X_custom, activation_function)
-                print (f"momentum_loss = {momentum_loss}")
+                momentum_loss = model.module.compute_physics_momentum_loss(X_custom, input_params, output_params)
                 total_loss += momentum_loss
             if config["loss_components"]["cont_loss"]:
-                cont_loss = model.module.compute_physics_cont_loss(X_custom, rho, nu, activation_function)
-                print (f"cont_loss = {cont_loss}")
+                cont_loss = model.module.compute_physics_cont_loss(X_custom, input_params, output_params)
                 total_loss += cont_loss
         else:
             if config["loss_components"]["data_loss"]:
-                data_loss = model.compute_data_loss(X, y, activation_function)
-                print (f"data_loss = {data_loss}")
+                data_loss = model.compute_data_loss(X, y)
                 total_loss += data_loss
             if config["loss_components"]["momentum_loss"]:
-                momentum_loss = model.compute_physics_momentum_loss(X_custom, activation_function)
-                print (f"momentum_loss = {momentum_loss}")
+                momentum_loss = model.compute_physics_momentum_loss(X_custom, input_params, output_params)
                 total_loss += momentum_loss
             if config["loss_components"]["cont_loss"]:
-                cont_loss = model.compute_physics_cont_loss(X_custom, rho, nu, activation_function)
-                print (f"cont_loss = {cont_loss}")
+                cont_loss = model.compute_physics_cont_loss(X_custom, input_params, output_params)
                 total_loss += cont_loss
         
         data_loss = locals().get('data_loss', 0)
@@ -142,23 +137,22 @@ def train_model(rank, world_size, model, activation_function, device, X_train_te
         cont_loss = locals().get('cont_loss', 0)
         momentum_loss = locals().get('momentum_loss', 0)
         total_loss_weighted = weighting(data_loss, total_averaged_boundary_loss, cont_loss, momentum_loss)
-        print (f"total_loss_weighted = {total_loss_weighted}, time: {(time.time() - start_time):.2f} seconds")
-        print (f"total_loss = {total_loss}, time: {(time.time() - start_time):.2f} seconds")
+        losses = [total_loss, total_loss_weighted, data_loss, cont_loss, momentum_loss, total_averaged_boundary_loss]
 
         if config["loss_components"]["use_weighting"]:
-            return total_loss_weighted
+            return total_loss_weighted, losses
         else:
-            return total_loss
+            return total_loss, losses 
 
     def closure():
         optimizer.zero_grad()
         if config["train_test"]["distributed_training"]:
-            predictions = model.module(X_batch, activation_function)
+            predictions = model.module(X_batch)
         else:
-            predictions = model(X_batch, activation_function)
-        total_loss = calculate_total_loss(X_batch, y_batch, config)
+            predictions = model(X_batch)
+        total_loss, losses = calculate_total_loss(X_batch, y_batch, config)
         total_loss.backward()
-        return total_loss
+        return total_loss, losses
     
     if config["training"]["use_batches"]:
         if not config["training"]["force"]:
@@ -172,7 +166,7 @@ def train_model(rank, world_size, model, activation_function, device, X_train_te
                         optimizer = optimizer_adam
                     else:
                         continue
-                    loss = optimizer.step(closure)
+                    loss, losses = optimizer.step(closure)
                     maximum_batch_size += int(0.001 * len(X_train_tensor))  # Increase and try again
                     available_gpu_memory, _ = get_available_device_memory(device.index)
                     print(f"Determining maximum batch size: {maximum_batch_size} with free memory = {available_gpu_memory:.2f} GB, time: {(time.time() - start_time):.2f} seconds")
@@ -225,23 +219,14 @@ def train_model(rank, world_size, model, activation_function, device, X_train_te
     early_stop = False  # Flag to break out of both loops
 
     if os.path.exists(model_file_path):
-        print(f"continuing from last checkpoint..., time: {(time.time() - start_time):.2f} seconds")
-        checkpoint = torch.load(model_file_path, map_location=device)
-        state_dict_keys = list(checkpoint['model_state_dict'].keys())
-        if config["train_test"]["distributed_training"]:
-            if any(key.startswith("module.module.") for key in state_dict_keys):
-                modified_state_dict = {k.replace("module.module.", "module."): v for k, v in checkpoint['model_state_dict'].items()}
-            elif not any(key.startswith("module.") for key in state_dict_keys):
-                modified_state_dict = {"module." + k: v for k, v in checkpoint['model_state_dict'].items()}
-            else:
-                modified_state_dict = checkpoint['model_state_dict']
-            model.load_state_dict(modified_state_dict)
-        else:
-            if any(key.startswith("module.") for key in state_dict_keys):
-                modified_state_dict = {k.replace("module.", ""): v for k, v in checkpoint['model_state_dict'].items()}
-            else:
-                modified_state_dict = checkpoint['model_state_dict']
-            model.load_state_dict(modified_state_dict)
+        print(f"continuing from last checkpoint at {model_file_path}..., time: {(time.time() - start_time):.2f} seconds")
+        try:
+            checkpoint = torch.load(model_file_path, map_location=device)
+        except RuntimeError as e:
+            print(f"Error loading checkpoint: {e}")
+        state_dict = checkpoint['model_state_dict']
+        modified_state_dict = convert_state_dict(config, state_dict)
+        model.load_state_dict(modified_state_dict)
         if chosen_optimizer_key == "both_optimizers":
             if checkpoint['epoch'] <= config[chosen_optimizer_key]["adam_epochs"]:
                 optimizer = optimizer_adam
@@ -253,7 +238,7 @@ def train_model(rank, world_size, model, activation_function, device, X_train_te
             print(f"Training has already been completed., time: {(time.time() - start_time):.2f} seconds")
             return model
         else:
-            start_epoch = checkpoint['epoch'] + 1
+            start_epoch = checkpoint['epoch']
             print(f"continuing from last checkpoint... starting from epoch = {start_epoch}, time: {(time.time() - start_time):.2f} seconds")
     else:
         start_epoch = 1
@@ -278,15 +263,14 @@ def train_model(rank, world_size, model, activation_function, device, X_train_te
             break
         else:
             training_completed = False
+        print_lines = 0
         for X_batch, y_batch in train_loader:
             if chosen_optimizer_key == "both_optimizers":
                 if epoch <= config[chosen_optimizer_key]["adam_epochs"]:
                     optimizer = optimizer_adam
                 else:
                     optimizer = optimizer_lbfgs
-            else:
-                print (f'optimizer = {chosen_optimizer_key}')
-            current_loss = optimizer.step(closure)
+            current_loss, current_losses = optimizer.step(closure)
             if previous_loss is not None:
                 loss_diff = abs(current_loss - previous_loss)
                 if loss_diff < loss_diff_threshold:
@@ -298,25 +282,30 @@ def train_model(rank, world_size, model, activation_function, device, X_train_te
                 else:
                     consecutive_count = 0
             if epoch % 5 == 0:
-                current_elapsed_time = time.time() - start_time
-                current_elapsed_time_hours = current_elapsed_time / 3600
-                free_memory, _ = get_available_device_memory(device.index)
-                print(f'Epoch [{epoch}/{epochs if use_epoch else "infinity"}], Loss: {current_loss}, Total Time elapsed: {current_elapsed_time_hours:.2f} hours, with free memory: {free_memory:.2f} GB')
-                success = False
-                error_count = 0
-                while not success:
-                    try:
-                        torch.save({
-                            'epoch': epoch,
-                            'model_state_dict': model.state_dict(),
-                            'optimizer_state_dict': optimizer.state_dict(),
-                            'loss': current_loss,
-                            'training_completed': training_completed
-                        }, model_file_path)
-                        success = True  # If it reaches this point, the block executed without errors, so we set success to True
-                    except Exception as e:
-                        error_count += 1
-                        print(f"An error occurred (Attempt #{error_count}): {e}. Trying again...")
+                if print_lines < 1:
+                    current_elapsed_time = time.time() - start_time
+                    current_elapsed_time_hours = current_elapsed_time / 3600
+                    free_memory, _ = get_available_device_memory(device.index)
+                    total_loss, weighted_total_loss, data_loss, cont_loss, momentum_loss, total_avg_boundary_loss = current_losses
+                    print(f'Epoch [{epoch}/{epochs if use_epoch else "infinity"}], Loss: {current_loss}, Total Time Elapsed: {current_elapsed_time_hours:.2f} hours, with free memory: {free_memory:.2f} GB; data_loss = {data_loss}, cont_loss = {cont_loss}, momentum_loss = {momentum_loss}, total_averaged_boundary_loss = {total_avg_boundary_loss}, total_loss = {total_loss}, total_loss_weighted = {weighted_total_loss}')
+                    success = False
+                    error_count = 0
+                    while not success:
+                        try:
+                            torch.save({
+                                'epoch': epoch,
+                                'model_state_dict': model.state_dict(),
+                                'optimizer_state_dict': optimizer.state_dict(),
+                                'loss': current_loss,
+                                'training_completed': training_completed
+                            }, model_file_path)
+                            success = True  # If it reaches this point, the block executed without errors, so we set success to True
+                        except Exception as e:
+                            error_count += 1
+                            print(f"An error occurred (Attempt #{error_count}): {e}. Trying again...")
+                    print_lines += 1
+                else:
+                    pass
             previous_loss = current_loss
 
     # Capture end time
