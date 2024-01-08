@@ -1,0 +1,2 @@
+model_checkpoint_path: "(\'trained_PINN_model\', \'.json\')-1"
+all_model_checkpoint_paths: "(\'trained_PINN_model\', \'.json\')-1"
