@@ -5,7 +5,7 @@ from plotting import *
 from testing import *
 from physics import *
 
-def main(base_directory, config, output_zip_file=None):
+def main(base_directory, config, device=None, data_dict=None, input_params=None, output_params=None, model=None, output_zip_file=None):
     overall_start_time = time.time()
     today = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
     
@@ -21,41 +21,43 @@ def main(base_directory, config, output_zip_file=None):
     model_file_path = os.path.join(model_folder, 'trained_PINN_model.pth')
     
     log_filename = os.path.join(log_folder,f"output_log_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.txt")
-    sys.stdout = Logger(log_filename)  # Set the logger as the new stdout
+    sys.stdout = Logger(log_filename)
 
-    device = print_and_set_available_gpus()
-
-    data_dict = load_data(config, device)
-
-    model = PINN(input_params=config["training"]["input_params"], output_params=config["training"]["output_params"], hidden_layers=config["training"]["number_of_hidden_layers"], neurons_per_layer=[config["training"]["neuron_number"]] * config["training"]["number_of_hidden_layers"], activation=config["training"]["activation_function"], use_batch_norm=config["training"]["batch_normalization"], dropout_rate=config["training"]["dropout_rate"]).to(device)
-    
     ###TRAINING###
     if config["train_test"]["train"]:
-        model = train_model(model, device, config, data_dict, model_file_path, log_folder)
+        if config["training"]["use_PCA"]:
+            model = train_model_PCA(model, device, config, data_dict, model_file_path, output_folder, today, overall_start_time, log_folder)
+        elif config["training"]["use_fft"]:
+            model = train_model_fft(model, device, config, data_dict, model_file_path, output_folder, today, overall_start_time, log_folder)
+        else:
+            model = train_model(model, device, config, data_dict, model_file_path, output_folder, today, overall_start_time, log_folder)
     ###TRAINING###
 
-    ###TESTING###
-    if config["train_test"]["test"]:
-        testing(model, device, config, data_dict, model_file_path, output_folder, today, overall_start_time)
-    ###TESTING###
-
-    ###EVALUATING###
+    ###EVALUATION###
     if config["train_test"]["evaluate"]:
         evaluation(model, device, config, data_dict, model_file_path, output_folder, today, overall_start_time)
-    ###EVALUATING###
-
-    ###NEW ANGLES###
+    if config["train_test"]["test"]:
+        testing(model, device, config, data_dict, model_file_path, output_folder, today, overall_start_time)
     if config["train_test"]["evaluate_new_angles"]:
         evaluation_new_angles(model, device, config, data_dict, model_file_path, output_folder, today, overall_start_time)
-    ###NEW ANGLES###
+    ###EVALUATION###
 
-    ##OTHERS###
-    if config["plotting"]["make_logging_plots"]:
-        process_logging_statistics(log_folder)
+    ###BOUNDARY TESTING###
+    if config["train_test"]["boundary_test"]:
+        solid_boundary_testing(model, device, config, data_dict, model_file_path, output_folder, today, overall_start_time)
+        surface_boundary_testing(model, device, config, data_dict, model_file_path, output_folder, today, overall_start_time)
+    ###BOUNDARY TESTING###
+
+    ##PHYSICS###
     if config["plotting"]["make_div_plots"]:
         evaluation_physics(model, device, config, data_dict, model_file_path, output_folder, today, overall_start_time, 'Div')     
     if config["plotting"]["make_RANS_plots"]:
-        evaluation_physics(model, device, config, data_dict, model_file_path, output_folder, today, overall_start_time, 'RANS')       
+        evaluation_physics(model, device, config, data_dict, model_file_path, output_folder, today, overall_start_time, 'RANS')
+    ##PHYSICS### 
+
+    ##OTHERS###
+    if config["plotting"]["make_logging_plots"]:
+        process_logging_statistics(log_folder)  
     if config["plotting"]["make_data_plots"]:
         make_pure_data_plots(config, output_folder, today, overall_start_time)
     ##OTHERS###

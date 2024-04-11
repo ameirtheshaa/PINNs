@@ -3,8 +3,7 @@ from definitions import *
 config = {
     "lbfgs_optimizer": {
         "type": "LBFGS",
-        "learning_rate": 0.00001,
-        "max_iter": 200000,
+        "max_iter": 1e6,
         "max_eval": 50000,
         "history_size": 50,
         "tolerance_grad": 1e-05,
@@ -20,17 +19,28 @@ config = {
         "neuron_number": 128,
         "input_params": ['Points:0', 'Points:1', 'Points:2', 'cos(WindAngle)', 'sin(WindAngle)'], 
         "input_params_modf": ["X", "Y", "Z", "cos(WindAngle)", "sin(WindAngle)"], 
-        "output_params": ['Velocity:0', 'Velocity:1', 'Velocity:2'], #['Pressure', 'Velocity:0', 'Velocity:1', 'Velocity:2', 'TurbVisc']
-        "output_params_modf": ['Velocity_X', 'Velocity_Y', 'Velocity_Z'], #['Pressure', 'Velocity_X', 'Velocity_Y', 'Velocity_Z', 'TurbVisc']
+        "input_params_points": ['Points:0', 'Points:1', 'Points:2'],
+        "input_params_points_modf": ["X", "Y", "Z"],
+        "output_params": ['Pressure', 'Velocity:0', 'Velocity:1', 'Velocity:2', 'TurbVisc'], # ['Velocity:0', 'Velocity:1', 'Velocity:2']
+        "output_params_modf": ['Pressure', 'Velocity_X', 'Velocity_Y', 'Velocity_Z', 'TurbVisc'], # ['Velocity_X', 'Velocity_Y', 'Velocity_Z']
+        "features_factor": 1,
+        "targets_factor": 1,
         "activation_function": nn.ELU, #nn.ReLU, nn.Tanh,
+        "force_device": None,
+        "change_optimizer": False,
         "batch_normalization": False,
         "dropout_rate": None,
         "use_epochs": False,
         "num_epochs": 1,
-        "print_epochs": 10,
+        "print_epochs": 1,
+        "save_metrics": 100,
+        "total_model_eval": None,
+        "total_model_test": None,
         "use_batches": False,
         "batch_size": 2**15,
         "use_data_for_cont_loss": False,
+        "use_fft": False,
+        "use_PCA": False,
         "angles_to_leave_out": [135],
         "angles_to_train": [0,15,30,45,60,75,90,105,120,150,165,180],
         "all_angles": [0,15,30,45,60,75,90,105,120,135,150,165,180],
@@ -69,6 +79,7 @@ config = {
     "train_test": {
         "train": False,
         "test": False,
+        "boundary_test": False,
         "evaluate": False,
         "evaluate_new_angles": False,
         "test_size": 0.1,
@@ -81,13 +92,20 @@ config = {
         "lim_min_max": [(-1, 1),(-1, 1),(0, 1)], #[(-0.3, 0.3),(-0.3, 0.3),(0, 1)]
         "arrow": [False, [[500,500],[500,570]]],
         "plotting_params": [['X-Y',50,5]], # [['X-Z',570,5],['Y-Z',500,5],['X-Y',50,5]] # ['X-Y',5,5] # [['X-Z',-300,5],['Y-Z',-300,5],['X-Y',5,5]]
+        "plot_geometry": False,
         "make_logging_plots": False,
+        "save_csv_predictions": False,
+        "save_vtk": False,
+        "make_plots": False,
         "make_data_plots": False,
         "make_div_plots": False,
         "make_RANS_plots": False,
     },
+    "testing": {
+        "epoch_number": None,
+    },
     "chosen_machine": "mac",
     "chosen_optimizer": "adam_optimizer",
-    "base_folder_names": "test",
+    "base_folder_name": "test",
     "base_folder_names": ["test"]
 }

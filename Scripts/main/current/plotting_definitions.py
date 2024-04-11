@@ -79,20 +79,38 @@ def get_plane_config(plane):
     coordinate3 = {'X-Z': 'Y', 'Y-Z': 'X', 'X-Y': 'Z'}[plane]
     coordinate1 = plane.split('-')[0]
     coordinate2 = plane.split('-')[1]
-    if plane in ['X-Z', 'Y-Z']:
-        print (config["plotting"]["lim_min_max"])
+    if plane == 'X-Z':
         lim_min1, lim_max1 = config["plotting"]["lim_min_max"][0]
         lim_min2, lim_max2 = config["plotting"]["lim_min_max"][2]
+    elif plane == 'Y-Z':
+        lim_min1, lim_max1 = config["plotting"]["lim_min_max"][1]
+        lim_min2, lim_max2 = config["plotting"]["lim_min_max"][2] 
     elif plane == 'X-Y':
         lim_min1, lim_max1 = config["plotting"]["lim_min_max"][0]
         lim_min2, lim_max2 = config["plotting"]["lim_min_max"][1] 
     return coordinate1, coordinate2, coordinate3, lim_min1, lim_max1, lim_min2, lim_max2  
 
-def filter_dataframe(df, wind_angle, noplotdata, cut, tolerance):
-    lower_bound = wind_angle - 2
-    upper_bound = wind_angle + 2
-    mask = df['WindAngle'].between(lower_bound, upper_bound)
-    df_filtered = df.loc[mask]
+def filter_dataframe(config, df, wind_angle, noplotdata, cut, tolerance):
+
+    def extract_dataset_by_wind_angle(df, dataset_size, lower_bound, upper_bound):
+        for start_idx in range(0, len(df), dataset_size):
+            if df.iloc[start_idx]['WindAngle'] >= lower_bound and df.iloc[start_idx]['WindAngle'] <= upper_bound:
+                return df.iloc[start_idx:start_idx+dataset_size]
+        return pd.DataFrame()
+
+    def get_dataset_size(config):
+        chosen_machine_key = config["chosen_machine"]
+        datafolder_path = os.path.join(config["machine"][chosen_machine_key], config["data"]["data_folder_name"])
+        filenames = get_filenames_from_folder(datafolder_path, config["data"]["extension"], config["data"]["startname_data"])
+        for filename in sorted(filenames):
+            df = pd.read_csv(os.path.join(datafolder_path, filename))
+            return len(df)
+            break
+
+    lower_bound = wind_angle - 5
+    upper_bound = wind_angle + 5
+    
+    df_filtered = extract_dataset_by_wind_angle(df, get_dataset_size(config), lower_bound, upper_bound)
     df_filtered = df_filtered[(df_filtered[noplotdata] >= cut - tolerance) & (df_filtered[noplotdata] <= cut + tolerance)]
     return df_filtered
 
@@ -176,46 +194,29 @@ def scale_geometry(filename, scaled_filename):
 
 def get_geometry(plane, filename):
     your_mesh = mesh.Mesh.from_file(filename)
+    vectors = your_mesh.vectors
+    return vectors
+
+def plot_geometry(plane, geometry, scatter_size, ax):
     if config["data"]["geometry"] == 'scaled_cylinder_sphere.stl':
-        flattened = your_mesh.vectors.reshape(-1, 3)
+        flattened = geometry.reshape(-1, 3)
         x, y, z = flattened[:, 0], flattened[:, 1], flattened[:, 2]
         if plane == 'X-Z':
-            x, z = normalize_grids(plane, x, z)
-            return x, z
+            g1, g2 = normalize_grids(plane, x, z)
         elif plane == 'Y-Z':
-            y, z = normalize_grids(plane, y, z)
-            return y, z
+            g1, g2 = normalize_grids(plane, y, z)
         elif plane == 'X-Y':
-            x, y = normalize_grids(plane, x, y)
-            return x, y
-    else:
-        vectors = your_mesh.vectors
-        return vectors, vectors
-        # x, y, z = [], [], []
-        # for triangle in your_mesh.vectors:
-        #     x_ = [point[0] for point in triangle] + [triangle[0][0]] # Closing the loop
-        #     y_ = [point[1] for point in triangle] + [triangle[0][1]] # Closing the loop
-        #     z_ = [point[2] for point in triangle] + [triangle[0][2]] # Closing the loop
-        #     x.append(x_)
-        #     y.append(y_)
-        #     z.append(z_)
-
-def plot_geometry(plane, geometry1, geometry2, scatter_size, ax):
-    if config["data"]["geometry"] == 'scaled_cylinder_sphere.stl':
-        ax.scatter(geometry1, geometry2, c='black', s=scatter_size, label='Geometry')
-    else:
-        # ax.plot(geometry1, geometry2, c='black')
-        geometry = geometry1
+            g1, g2 = normalize_grids(plane, x, y)
+        ax.scatter(g1, g2, c='black', s=scatter_size, label='Geometry')
+    elif config["data"]["geometry"] == 'ladefense.stl':
         for triangle in geometry:
             x = [point[0] for point in triangle] + [triangle[0][0]] # Closing the loop
             y = [point[1] for point in triangle] + [triangle[0][1]] # Closing the loop
             z = [point[2] for point in triangle] + [triangle[0][2]] # Closing the loop
             if plane == 'X-Y':
-                x, y = normalize_grids(plane, x, y)
-                ax.plot(x, y, color='black')
+                g1, g2 = normalize_grids(plane, x, y)
             if plane == 'X-Z':
-                x, z = normalize_grids(plane, x, z)
-                ax.plot(x, z, color='black')
+                g1, g2 = normalize_grids(plane, x, z)
             if plane == 'Y-Z':
-                y, z = normalize_grids(plane, y, z)
-                ax.plot(y, z, color='black')
+                g1, g2 = normalize_grids(plane, y, z)
+            ax.plot(g1, g2, color='black')

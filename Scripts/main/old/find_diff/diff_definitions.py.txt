@@ -1,0 +1,105 @@
+42a43,49
+> def generate_machine_paths(dataset_name):
+>     return {
+>         "mac": os.path.join(os.path.expanduser("~"), "Dropbox", "School", "Graduate", "CERN", "Temp_Files", "nonlineardynamics", "ameir_PINNs", dataset_name),
+>         "CREATE": os.path.join('Z:\\', dataset_name),
+>         "google": f"/content/drive/Othercomputers/My Mac mini/{dataset_name}",
+>     }
+> 
+240,247c247
+<     previous_time = 0
+<     current_time = 0
+<     for i in df.values:
+<         time = float(i[2])
+<         if time < previous_time:
+<             current_time += previous_time
+<         previous_time = time
+<         written_time = current_time + time
+---
+>     time = df['Total Time Elapsed (hours)'].iloc[-1]
+253c253
+<     return df, written_time, total_epochs
+---
+>     return df, time, total_epochs
+379c379
+< def load_div_data(config, wind_angles):
+---
+> def load_derivative_data(config, wind_angles):
+382c382
+<     filenames = get_filenames_from_folder(datafolder_path, config["data"]["extension"], "gradV_all")
+---
+>     filenames = get_filenames_from_folder(datafolder_path, config["data"]["extension"], "all_data")
+384c384,399
+<     data.rename(columns={'Points_0': 'X', 'Points_1': 'Y', 'Points_2': 'Z', 'gradV_0': 'u_x', 'gradV_1': 'u_y', 'gradV_2': 'u_z', 'gradV_3': 'v_x', 'gradV_4': 'v_y', 'gradV_5': 'v_z', 'gradV_6': 'w_x', 'gradV_7': 'w_y', 'gradV_7': 'w_z' }, inplace=True)
+---
+>     data.rename(columns={'Points:0': 'X', 'Points:1': 'Y', 'Points:2': 'Z', 
+>     'GradientVelocity:0': 'u_x', 'GradientVelocity:1': 'u_y', 'GradientVelocity:2': 'u_z', 
+>     'GradientVelocity:3': 'v_x', 'GradientVelocity:4': 'v_y', 'GradientVelocity:5': 'v_z', 
+>     'GradientVelocity:6': 'w_x', 'GradientVelocity:7': 'w_y', 'GradientVelocity:8': 'w_z',
+>     'SecondGradientVelocity:0': 'u_xx','SecondGradientVelocity:1': 'u_xy','SecondGradientVelocity:2': 'u_xz',
+>     'SecondGradientVelocity:3': 'u_yx','SecondGradientVelocity:4': 'u_yy','SecondGradientVelocity:5': 'u_yz',
+>     'SecondGradientVelocity:6': 'u_zx','SecondGradientVelocity:7': 'u_zy','SecondGradientVelocity:8': 'u_zz',
+>     'SecondGradientVelocity:9': 'v_xx','SecondGradientVelocity:10': 'v_xy','SecondGradientVelocity:11': 'v_xz',
+>     'SecondGradientVelocity:12': 'v_yx','SecondGradientVelocity:13': 'v_yy','SecondGradientVelocity:14': 'v_yz',
+>     'SecondGradientVelocity:15': 'v_zx','SecondGradientVelocity:16': 'v_zy','SecondGradientVelocity:17': 'v_zz',
+>     'SecondGradientVelocity:18': 'w_xx','SecondGradientVelocity:19': 'w_xy','SecondGradientVelocity:20': 'w_xz',
+>     'SecondGradientVelocity:21': 'w_yx','SecondGradientVelocity:22': 'w_yy','SecondGradientVelocity:23': 'w_yz',
+>     'SecondGradientVelocity:24': 'w_zx','SecondGradientVelocity:25': 'w_zy','SecondGradientVelocity:26': 'w_zz',
+>     'Velocity:0': 'u', 'Velocity:1': 'v', 'Velocity:2': 'w', 
+>     'GradientPressure:0': 'p_x', 'GradientPressure:1': 'p_y', 'GradientPressure:2': 'p_z',
+>     },inplace=True)
+387,394c402,408
+< def extract_stds(target_scaler, output_params):
+<     extracted_stds = []
+<     stds = target_scaler.scale_
+<     for param in output_params:
+<         if param in ['Velocity:0', 'Velocity:1', 'Velocity:2']:
+<             index = output_params.index(param)
+<             extracted_stds.append(stds[index])
+<     return extracted_stds
+---
+> def extract_stds_means(scaler, params):
+>     stds = scaler.scale_  
+>     means = scaler.mean_  
+>     stds_dict = {param + "_std": std for param, std in zip(params, stds)}
+>     means_dict = {param + "_mean": mean for param, mean in zip(params, means)}
+>     stds_means_dict = {**stds_dict, **means_dict}
+>     return stds_means_dict
+396,413d409
+< def extract_input_stds(feature_scaler, input_params):
+<     extracted_stds = []
+<     stds = feature_scaler.scale_
+<     for param in input_params:
+<         if param in ['Points:0', 'Points:1', 'Points:2']:
+<             index = input_params.index(param)
+<             extracted_stds.append(stds[index])
+<     return extracted_stds
+< 
+< def extract_means(target_scaler, output_params):
+<     extracted_means = []
+<     means = target_scaler.mean_
+<     for param in output_params:
+<         if param in ['Velocity:0', 'Velocity:1', 'Velocity:2']:
+<             index = output_params.index(param)
+<             extracted_means.append(means[index])
+<     return extracted_means
+< 
+439,444c435,445
+<         div_data = load_div_data(config, training_wind_angles)
+<         extracted_stds = extract_stds(target_scaler, config["training"]["output_params"])
+<         extracted_input_stds = extract_input_stds(feature_scaler, config["training"]["input_params"])
+<         u_x = div_data['u_x']*extracted_stds[0]/extracted_input_stds[0]
+<         v_y = div_data['v_y']*extracted_stds[1]/extracted_input_stds[1]
+<         w_z = div_data['w_z']*extracted_stds[2]/extracted_input_stds[2]
+---
+>         div_data = load_derivative_data(config, training_wind_angles)
+>         input_params_modf = config["training"]["input_params_modf"]
+>         output_params_modf = config["training"]["output_params_modf"]
+>         input_stds_means = extract_stds_means(feature_scaler, input_params_modf)
+>         output_stds_means = extract_stds_means(target_scaler, output_params_modf)
+>         stds_means_dict = {**input_stds_means, **output_stds_means}
+> 
+>         u_x = div_data["u_x"]/(stds_means_dict['Velocity_X_std']/stds_means_dict['X_std'])
+>         v_y = div_data["v_y"]/(stds_means_dict['Velocity_Y_std']/stds_means_dict['Y_std'])
+>         w_z = div_data["w_z"]/(stds_means_dict['Velocity_Z_std']/stds_means_dict['Z_std'])
+> 

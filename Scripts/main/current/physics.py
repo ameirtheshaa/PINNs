@@ -100,6 +100,73 @@ def load_line_div_data(device, config, wind_angles, feature_scaler, target_scale
     X_test_tensor = X_test_tensor.to(device)
     return data, X_test_tensor
 
+def compute_vtk_gradient(input_data, scalar_name, result_name):
+    gradient_filter = vtk.vtkGradientFilter()
+    gradient_filter.SetInputData(input_data)
+    gradient_filter.SetInputScalars(vtk.vtkDataObject.FIELD_ASSOCIATION_CELLS, scalar_name)
+    gradient_filter.SetResultArrayName(result_name)
+    gradient_filter.Update()
+    gradient_output = gradient_filter.GetOutput()
+    gradient_data_array = gradient_output.GetCellData().GetArray(result_name)
+    input_data.GetCellData().AddArray(gradient_data_array)
+    input_data.Modified()
+    return input_data
+
+def output_nn_physics_to_vtk(config, angle, filename, df, column_names, output_folder):
+	chosen_machine_key = config["chosen_machine"]
+	datafolder_path = os.path.join(config["machine"][chosen_machine_key], config["data"]["data_folder_name"])
+	core_data = os.path.join(datafolder_path, "core_data", "core_data", f"deg_{angle}")
+	case_file = os.path.join(core_data, "RESULTS_FLUID_DOMAIN.case")
+
+	ensight_data = load_ensight_data(case_file)
+	ensight_data = ensight_data.GetBlock(0)
+	ensight_data = compute_vtk_gradient(ensight_data, 'Velocity', 'GradientVelocity')
+	ensight_data = compute_vtk_gradient(ensight_data, 'Pressure', 'GradientPressure')
+	ensight_data = compute_vtk_gradient(ensight_data, 'TurbVisc', 'GradientTurbVisc')
+	ensight_data = compute_vtk_gradient(ensight_data, 'GradientVelocity', 'GradientGradientVelocity')
+	ensight_data = compute_vtk_gradient(ensight_data, 'GradientPressure', 'GradientGradientPressure')
+	ensight_data = compute_vtk_gradient(ensight_data, 'GradientTurbVisc', 'GradientGradientTurbVisc')
+	cell_id_to_position = {}
+	cell_centers_filter = vtk.vtkCellCenters()
+	cell_centers_filter.SetInputData(ensight_data)
+	cell_centers_filter.VertexCellsOn()
+	cell_centers_filter.Update()
+	centers_polydata = cell_centers_filter.GetOutput()
+	points = centers_polydata.GetPoints()
+	cell_id_to_position = {}
+	for i in range(points.GetNumberOfPoints()):
+		position = points.GetPoint(i)
+		cell_id_to_position[i] = position
+	output_data = add_cell_ids_to_df(df, cell_id_to_position)
+	indices_to_keep = output_data['cell_id']
+	ids = vtk.vtkIdTypeArray()
+	ids.SetNumberOfComponents(1)
+	for cell_id in indices_to_keep:
+		ids.InsertNextValue(cell_id)
+
+	selectionNode = vtk.vtkSelectionNode()
+	selectionNode.SetFieldType(vtk.vtkSelectionNode.CELL)
+	selectionNode.SetContentType(vtk.vtkSelectionNode.INDICES)
+	selectionNode.SetSelectionList(ids)
+	selection = vtk.vtkSelection()
+	selection.AddNode(selectionNode)
+	extractSelection = vtk.vtkExtractSelection()
+	extractSelection.SetInputData(0, ensight_data)
+	extractSelection.SetInputData(1, selection)
+	extractSelection.Update()
+	trimmed_data = extractSelection.GetOutput()
+
+	column_names.append('cell_id')
+	output_data_trimmed = output_data[column_names]
+
+	for i in column_names:
+		if i != 'cell_id':
+			column_name_ = ['cell_id', i]
+			output_data_i = output_data_trimmed[column_name_]
+			trimmed_data = append_nn2CFD(trimmed_data, output_data_i, i)
+
+	save_vtu_data(os.path.join(output_folder, f'{filename}.vtu'), trimmed_data)
+
 def base_line_plots(wind_angle, coord_values_actual, coord_values_pred, grad_actual, velocity_actual, grad_pred, velocity_pred, savename_total_div, label_grad, label_velocity):
 	fig, axs = plt.subplots(1, 2, figsize=(32,16), sharey=False)
 	fig.suptitle(f'Comparison of Actual vs. Predicted values with Wind Angle = {wind_angle}')
@@ -184,7 +251,9 @@ def evaluate_model_physics(config, model, wind_angles, X_test_tensor, feature_sc
 			if len(filtered_predictions)!= 0:
 				combined_df = pd.concat([filtered_X_test_dataframe, filtered_predictions, filtered_df], axis=1)
 				combined_df['WindAngle'] = (wind_angle)
-				combined_df.to_csv(os.path.join(output_folder, f'{physics}_output_{wind_angle}.csv'), index=False)
+				if config["plotting"]["save_csv_predictions"]:
+					os.makedirs(output_folder, exist_ok=True)
+					combined_df.to_csv(os.path.join(output_folder, f'{physics}_output_{wind_angle}.csv'), index=False)
 				dfs.append(combined_df)
 	data = pd.concat(dfs)
 	return data
@@ -197,10 +266,9 @@ def plot_physics_predictions(df,df_data,wind_angle,config,datafolder_path,savena
 	grid1_actual, grid2_actual = define_scatter_grid(filtered_df_data, coordinate1, coordinate2)
 	grid1_pred, grid2_pred = define_scatter_grid(filtered_df, coordinate1, coordinate2)
 	geometry_filename = os.path.join(datafolder_path, config["data"]["geometry"])
-	geometry1, geometry2 = get_geometry(plane, geometry_filename)
+	geometry = get_geometry(plane, geometry_filename)
 	grid1_actual, grid2_actual = normalize_grids(plane, grid1_actual, grid2_actual)
 	grid1_pred, grid2_pred = normalize_grids(plane, grid1_pred, grid2_pred)
-	geometry1, geometry2 = normalize_grids(plane, geometry1, geometry2)
 	cut, tolerance = normalize_cut_tolerance(plane, cut, tolerance)
 	_actual = filtered_df_data[physics]
 	_pred = filtered_df[physics]
@@ -211,7 +279,7 @@ def plot_physics_predictions(df,df_data,wind_angle,config,datafolder_path,savena
 	scatter_actual = axs[0].scatter(grid1_actual, grid2_actual, c=_actual, s=scatter_size, vmin=np.min(_actual), vmax=np.max(_actual), cmap=cmap)
 	scatter_cbar_actual = fig.colorbar(scatter_actual, ax=axs[0])
 	scatter_cbar_actual.set_label(f'{physics} Residual - Actual', rotation=270, labelpad=15)
-	axs[0].scatter(geometry1, geometry2, c='black', s=scatter_size, label='Geometry')
+	plot_geometry(plane, geometry, scatter_size, axs[0])
 	axs[0].set_xlabel(f'{coordinate1} Coordinate')
 	axs[0].set_ylabel(f'{coordinate2} Coordinate')
 	axs[0].set_xlim(lim_min1, lim_max1) 
@@ -222,7 +290,7 @@ def plot_physics_predictions(df,df_data,wind_angle,config,datafolder_path,savena
 	scatter_pred = axs[1].scatter(grid1_pred, grid2_pred, c=_pred, s=scatter_size, vmin=np.min(_actual), vmax=np.max(_actual), cmap=cmap)
 	scatter_cbar_pred = fig.colorbar(scatter_pred, ax=axs[1])
 	scatter_cbar_pred.set_label(f'{physics} Residual - Predicted', rotation=270, labelpad=15)
-	axs[1].scatter(geometry1, geometry2, c='black', s=scatter_size, label='Geometry')
+	plot_geometry(plane, geometry, scatter_size, axs[1])
 	axs[1].set_xlabel(f'{coordinate1} Coordinate')
 	axs[1].set_ylabel(f'{coordinate2} Coordinate')
 	axs[1].set_xlim(lim_min1, lim_max1) 
@@ -251,26 +319,35 @@ def evaluation_physics(model, device, config, data_dict, model_file_path, output
 	geometry_filename = os.path.join(datafolder_path, config["data"]["geometry"])
 	rho = config["data"]["density"]
 	nu = config["data"]["kinematic_viscosity"]
-	checkpoint = open_model_file(model_file_path, device)
+	if config["testing"]["epoch_number"] is not None:
+		model_file_path_forced = f"{model_file_path}_{config['testing']['epoch_number']}"
+		checkpoint = open_model_file(model_file_path_forced, device)
+	else:
+		checkpoint = open_model_file(model_file_path, device)
 	wind_angles = config["training"]["all_angles"]
+	vtk_output = os.path.join(output_folder, f'vtk_output_{checkpoint["epoch"]}')
 	plot_folder = os.path.join(output_folder, f'plots_output_for_{physics}_{today}_{checkpoint["epoch"]}')
-	os.makedirs(plot_folder, exist_ok=True)
+	os.makedirs(vtk_output, exist_ok=True)
 	print (f'Model {testing_type} at Epoch = {checkpoint["epoch"]} and Training Completed = {checkpoint["training_completed"]}, Time: {(time.time() - overall_start_time):.2f} Seconds')
 	model.load_state_dict(checkpoint['model_state_dict'])
 	X_train_tensor, y_train_tensor, X_test_tensor, y_test_tensor, labels_train_tensor, X_train_tensor_skipped, y_train_tensor_skipped, X_test_tensor_skipped, y_test_tensor_skipped, feature_scaler, target_scaler, X_train_divergences_tensor, X_test_divergences_tensor, y_train_divergences_tensor, y_test_divergences_tensor = data_dict.values()
 	for wind_angle in wind_angles:
-		X_test_tensor_new = load_data_new_angles(device, config, feature_scaler, target_scaler, [wind_angle])
+		X_test_tensor_new, y_test_tensor_new = load_data_new_angles(device, config, feature_scaler, target_scaler, [wind_angle])
 		df_torch = evaluate_model_physics(config, model, [wind_angle], X_test_tensor_new, feature_scaler, target_scaler, plot_folder, physics)
 		df_data = load_derivative_data(config, [wind_angle])
 		df_data = evaluate_RANS_data(df_data, rho, nu)
 		df_data = evaluate_div_data(df_data)
+		output_nn_physics_to_vtk(config, wind_angle, f'{physics}_predictions_for_wind_angle_{wind_angle}', df_torch, [physics], vtk_output)
 		print (f'Model Evaluated and Starting to Plot for Wind Angle = {wind_angle}, Time: {(time.time() - overall_start_time):.2f} Seconds')
-		plot_angles_2d(df_data,df_torch,physics,wind_angle,config,plot_folder)
+		if config["plotting"]["make_plots"]:
+			os.makedirs(plot_folder, exist_ok=True)
+			plot_angles_2d(df_data,df_torch,physics,wind_angle,config,plot_folder)
 		if physics == 'Div':
 			div_line_plot_folder = os.path.join(output_folder, f'plots_output_for_Div_line_{today}_{checkpoint["epoch"]}')
-			os.makedirs(div_line_plot_folder, exist_ok=True)
 			df_data_line, X_test_tensor_line = load_line_div_data(device, config, [wind_angle], feature_scaler, target_scaler)
 			df_torch_line = evaluate_model_physics(config, model, [wind_angle], X_test_tensor_line, feature_scaler, target_scaler, div_line_plot_folder, physics)
 			savename_div_line = os.path.join(div_line_plot_folder,f'div_line_{wind_angle}')
-			plot_line_predictions(df_data_line,df_torch_line,wind_angle,savename_div_line)
+			if config["plotting"]["make_plots"]:
+				os.makedirs(div_line_plot_folder, exist_ok=True)
+				plot_line_predictions(df_data_line,df_torch_line,wind_angle,savename_div_line)
 		print (f'Plotting Done for Wind Angle = {wind_angle}, Time: {(time.time() - overall_start_time):.2f} Seconds')

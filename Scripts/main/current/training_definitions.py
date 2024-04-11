@@ -25,12 +25,16 @@ def inlet_loss(model, all_inlet_features_targets, output_params):
 def calculate_total_loss(X, y, epoch, config, model, optimizer, closure, no_slip_features_normals=None, all_inlet_features_targets=None, y_divergences=None):
     
     input_params = config["training"]["input_params"]
+    input_params_points = ['Points:0', 'Points:1', 'Points:2']
     output_params = config["training"]["output_params"]
     rho = config["data"]["density"]
     nu = config["data"]["kinematic_viscosity"]
     all_wind_angles = config["training"]["all_angles"]
     training_wind_angles = config["training"]["angles_to_train"]
     loss_components = {}
+    if not closure:
+        grad_norms_squared = torch.tensor([param.grad.data.norm(2)**2 for param in model.parameters() if param.grad is not None], dtype=torch.float32)
+        loss_components["grad_norm"] = torch.sqrt(torch.sum(grad_norms_squared))
     if config["loss_components"]["data_loss"]:
         if config["train_test"]["data_loss_test_size"] is None:
             loss_components['data_loss'] = model.compute_data_loss(X, y)
@@ -57,7 +61,10 @@ def calculate_total_loss(X, y, epoch, config, model, optimizer, closure, no_slip
         loss_components['inlet_loss'] = inlet_loss(model, all_inlet_features_targets, output_params)
     if config["loss_components"]["momentum_loss"]:
         loss_components['momentum_loss'] = model.compute_physics_momentum_loss(X, input_params, output_params, rho, nu)
-    total_loss = sum(loss_components.values())
+    if not closure:
+        total_loss = sum(loss_components.values()) - loss_components["grad_norm"]
+    else:
+        total_loss = sum(loss_components.values())
     loss_components['total_loss'] = total_loss
     loss_components['total_loss_weighted'] = total_loss
     if config["loss_components"]["use_weighting"]:
@@ -103,6 +110,26 @@ def save_model(model, model_file_path, epoch, current_loss, training_completed, 
 
 def save_evaluation_results(config, device, model, model_file_path, log_folder, X_test_tensor, y_test_tensor, epoch, epochs, use_epoch, save_name):
     mses, r2s = evaluate_model_training(device, model, model_file_path, X_test_tensor, y_test_tensor)
+    output_params = config["training"]["output_params_modf"]
+    mse_strings = [f'MSE {param}: {mse}' for param, mse in zip(output_params, mses)]
+    mse_output = ', '.join(mse_strings)
+    r2_strings = [f'r2 {param}: {r2}' for param, r2 in zip(output_params, r2s)]
+    r2_output = ', '.join(r2_strings)
+    print(f'Epoch [{epoch}/{epochs if use_epoch else "infinity"}], {mse_output}, {r2_output} for {save_name} Data - {datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}')
+    save_evaluation_to_csv(epoch, epochs, use_epoch, output_params, mses, r2s, file_path=os.path.join(log_folder,f'{save_name}'))
+
+def save_evaluation_results_PCA(config, device, model, model_file_path, log_folder, X_test_tensor, y_test_tensor, epoch, epochs, use_epoch, x, save_name=None):
+    mses, r2s = evaluate_model_training_PCA(config, device, model, model_file_path, X_test_tensor, y_test_tensor, x)
+    output_params = config["training"]["output_params_modf"]
+    mse_strings = [f'MSE {param}: {mse}' for param, mse in zip(output_params, mses)]
+    mse_output = ', '.join(mse_strings)
+    r2_strings = [f'r2 {param}: {r2}' for param, r2 in zip(output_params, r2s)]
+    r2_output = ', '.join(r2_strings)
+    print(f'Epoch [{epoch}/{epochs if use_epoch else "infinity"}], {mse_output}, {r2_output} for {save_name} Data - {datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}')
+    save_evaluation_to_csv(epoch, epochs, use_epoch, output_params, mses, r2s, file_path=os.path.join(log_folder,f'{save_name}'))
+
+def save_evaluation_results_fft(config, device, model, model_file_path, log_folder, X_test_tensor, y_test_tensor, epoch, epochs, use_epoch, x, save_name=None):
+    mses, r2s = evaluate_model_training_fft(config, device, model, model_file_path, X_test_tensor, y_test_tensor, x)
     output_params = config["training"]["output_params_modf"]
     mse_strings = [f'MSE {param}: {mse}' for param, mse in zip(output_params, mses)]
     mse_output = ', '.join(mse_strings)

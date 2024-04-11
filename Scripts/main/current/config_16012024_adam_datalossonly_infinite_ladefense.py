@@ -19,6 +19,7 @@ config["loss_components"]["data_loss"] = True
 config["base_folder_name"] = "16012024_adam_datalossonly_infinite"
 
 if __name__ == "__main__":
+    device, data_dict, input_params, output_params, model = initialize_data(config)
     chosen_machine = config["chosen_machine"]
     base_directory = os.path.join(config["machine"][chosen_machine], config["base_folder_name"])
-    main(base_directory, config)
+    main(base_directory, config, device, data_dict, input_params, output_params, model)

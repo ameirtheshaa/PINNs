@@ -1,6 +1,4 @@
-from definitions import *
-from training import *
-from plotting import *
+import torch.nn as nn
 
 class PINN(nn.Module):
     def __init__(self, input_params, output_params, hidden_layers, neurons_per_layer, activation, use_batch_norm, dropout_rate):
