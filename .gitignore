@@ -1,2 +1,69 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
 
-Presentations/PM01506022024.pdf
+# Jupyter Notebook
+.ipynb_checkpoints
+*.ipynb_checkpoints
+
+# Virtual Environment
+venv/
+ENV/
+env/
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Data and Results (large files)
+*.csv
+*.h5
+*.hdf5
+data/
+!src/data/  # Keep geometry files
+results/figures/*.png
+results/figures/*.pdf
+results/logs/*.log
+results/logs/*.txt
+results/checkpoints/*.pth
+results/checkpoints/*.pt
+
+# Model outputs
+model_output/
+log_output/
+output.zip
+*.zip
+
+# Temporary files
+*.tmp
+*.bak
+*.orig
+
+# Specific files already tracked
+!Presentations/PM01506022024.pdf

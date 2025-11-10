@@ -1,0 +1,23 @@
+1c1
+< from main import *
+---
+> from definitions import * 
+36a37
+>         "boundary": [[0,1000,0,1000,0,1000],100], #[[-2520,2520,-2520,2520,0,1000],100]
+45c46
+<         "google": "/content/drive/Othercomputers/My Mac mini/cylinder_cell",
+---
+>         "google": f"/content/drive/Othercomputers/MacMini/cylinder_cell",
+55c56
+<         "geometry": 'scaled_cylinder_sphere.stl'
+---
+>         "geometry": 'scaled_cylinder_sphere.stl' #'ladefense.stl'
+70a72
+>         "boundary_test": False,
+80c82,85
+<         "plotting_params": [['X-Y',50,5]], # [['X-Z',570,5],['Y-Z',500,5],['X-Y',50,5]]
+---
+>         "lim_min_max": [(-1, 1),(-1, 1),(0, 1)], #[(-0.3, 0.3),(-0.3, 0.3),(0, 1)]
+>         "arrow": [False, [[500,500],[500,570]]],
+>         "plotting_params": [['X-Y',50,5]], # [['X-Z',570,5],['Y-Z',500,5],['X-Y',50,5]] # ['X-Y',5,5] # [['X-Z',-300,5],['Y-Z',-300,5],['X-Y',5,5]]
+>         "plot_geometry": False,

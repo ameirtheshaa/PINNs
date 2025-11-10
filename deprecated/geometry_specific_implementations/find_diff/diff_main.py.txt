@@ -1,0 +1,20 @@
+6,7c6
+< from divergence import *
+< from RANS import *
+---
+> from physics import *
+42a42,47
+>     ###BOUNDARY TESTING###
+>     if config["train_test"]["boundary_test"]:
+>         solid_boundary_testing(model, device, config, data_dict, model_file_path, output_folder, today, overall_start_time)
+>         surface_boundary_testing(model, device, config, data_dict, model_file_path, output_folder, today, overall_start_time)
+>     ###BOUNDARY TESTING###
+> 
+57c62
+<         evaluation_divergence(model, device, config, data_dict, model_file_path, output_folder, today, overall_start_time)     
+---
+>         evaluation_physics(model, device, config, data_dict, model_file_path, output_folder, today, overall_start_time, 'Div')     
+59c64
+<         evaluation_RANS(model, device, config, data_dict, model_file_path, output_folder, today, overall_start_time)       
+---
+>         evaluation_physics(model, device, config, data_dict, model_file_path, output_folder, today, overall_start_time, 'RANS')       
