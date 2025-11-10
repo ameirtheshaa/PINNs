@@ -1,4 +1,0 @@
-Second version of the scripts
-Used 5 inputs (x,y,z, cos(theta), sin(theta)) for the PINN
-Does not include RANS momentum loss
-Had 5 outputs (u,v,w,p,nu_t)

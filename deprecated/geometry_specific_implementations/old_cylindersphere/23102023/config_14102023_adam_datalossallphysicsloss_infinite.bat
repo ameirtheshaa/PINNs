@@ -1,0 +1,3 @@
+echo off
+python config_14102023_adam_datalossallphysicsloss_infinite.py
+pause

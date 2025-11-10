@@ -1,0 +1,14 @@
+11c11,17
+<     time_passed = None
+---
+>     logging_info_dir = os.path.join(log_folder, 'info.csv')
+>     logging_info_dir = Path(logging_info_dir)
+>     if os.path.exists(logging_info_dir):
+>         df = pd.read_csv(logging_info_dir)
+>         time_passed = df['Total Time Elapsed (hours)'].iloc[-1]
+>     else:
+>         time_passed = None
+67c73
+<         recent_losses, sma, consecutive_sma_count, time_passed = load_losses_from_json(os.path.join(log_folder,'sma.json'), sma_window_size)
+---
+>         recent_losses, sma, consecutive_sma_count, time_passed_ = load_losses_from_json(os.path.join(log_folder,'sma.json'), sma_window_size)

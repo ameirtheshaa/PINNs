@@ -1,0 +1,38 @@
+29,36c29,36
+< def inlet_loss_params():
+<     min_x_range = 0
+<     max_x_range = 1000
+<     min_y_range = 0
+<     max_y_range = 1000
+<     min_z_range = 0
+<     max_z_range = 1000
+<     num_points_boundary = 100
+---
+> def inlet_loss_params(config):
+>     min_x_range = config["training"]["boundary"][0][0]
+>     max_x_range = config["training"]["boundary"][0][1]
+>     min_y_range = config["training"]["boundary"][0][2]
+>     max_y_range = config["training"]["boundary"][0][3]
+>     min_z_range = config["training"]["boundary"][0][4]
+>     max_z_range = config["training"]["boundary"][0][5]
+>     num_points_boundary = config["training"]["boundary"][1]
+126c126
+<     min_x_range, max_x_range, x_range, min_y_range, max_y_range, y_range, min_z_range, max_z_range, z_range, num_points = inlet_loss_params()
+---
+>     min_x_range, max_x_range, x_range, min_y_range, max_y_range, y_range, min_z_range, max_z_range, z_range, num_points = inlet_loss_params(config)
+195,197d194
+<             extracted_stds = extract_stds(target_scaler, config["training"]["output_params"])
+<             extracted_means = extract_means(target_scaler, config["training"]["output_params"])
+< 
+200,202c197,203
+<             for i, col in enumerate(['Velocity:0', 'Velocity:1', 'Velocity:2']):
+<                 normalized_targets[col] = (targets[col] - extracted_means[i]) / extracted_stds[i]
+< 
+---
+>             stds_means_dict = extract_stds_means(target_scaler, config["training"]["output_params"])
+>             
+>             for col in ['Velocity:0', 'Velocity:1', 'Velocity:2']:
+>                 col_std = col + "_std"
+>                 col_mean = col + "_mean"
+>                 normalized_targets[col] = (targets[col] - stds_means_dict[col_mean]) / (stds_means_dict[col_std])
+>                 

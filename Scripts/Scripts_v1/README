@@ -1,3 +1,0 @@
-Earliest version of the scripts
-Used 9 inputs (x,y,z, theta, cos(theta), sin(theta), nu_t, rho, nu) for the PINN and included RANS momentum loss
-Had 4 outputs (u,v,w,p)
