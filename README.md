@@ -1,6 +1,6 @@
 # Physics-Informed Neural Networks for Wind Flow Simulation
 
-[![Python](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
+[![Python](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.0+-red.svg)](https://pytorch.org/)
 [![License](https://img.shields.io/badge/license-Contact_Authors-green.svg)]()
 
@@ -54,15 +54,38 @@ Download CSV files and place in a local `data/` directory.
 
 **Geometry included:** `src/data/scaled_cylinder_sphere.stl` (29MB)
 
-### Run Your First Training
+### Run an experiment script
+
+Experiment settings live in Python files under `configs/`. Each config is executed as a **module from the repository root** (so imports like `from main import *` resolve):
 
 ```bash
-# Quick test (small dataset, few epochs)
-python main.py --config configs/config_test.py
-
-# Full training (requires CFD data)
-python main.py --config configs/config.py --base-folder my_experiment
+cd /path/to/repo   # repository root, not configs/
+python configs/config_test.py
 ```
+
+Tune `configs/config.py` or copy an existing preset. Full training requires CFD CSV data under the path implied by `config["machine"][config["chosen_machine"]]`.
+
+See **Development** below for automated checks and agent workflow.
+
+### Agents and documentation map
+
+| File | Purpose |
+|------|---------|
+| `AGENTS.md` | Required workflow for AI agents (README updates, tests, work log). |
+| `docs/repository/FILE_LAYOUT.md` | Canonical directory layout and roles. |
+| `docs/repository/WORK_LOG.md` | Append-only change log (UTC). |
+| `docs/testing/TEST_RESULTS.md` | Last recorded `pytest` outcome and scope. |
+
+### Development and testing
+
+```bash
+pip install -r requirements.txt   # includes pytest
+pytest tests/ -q
+```
+
+After substantive code changes, refresh **`docs/testing/TEST_RESULTS.md`** with revision, date, and command output. Append a line to **`docs/repository/WORK_LOG.md`**.
+
+**Cursor Cloud:** `.cursor/environment.json` runs `.cursor/install.sh` to create `$HOME/.pinns/venv` and install `requirements.txt`. See `AGENTS.md`.
 
 ### Outputs
 
@@ -78,28 +101,27 @@ my_experiment/
 
 ## 📁 Repository Structure
 
+See **`docs/repository/FILE_LAYOUT.md`** for the full map (including root import shims and `.cursor/`).
+
 ```
 PINNs/
-├── src/                    # Modular source code
-│   ├── models/            # Neural network (PINN.py)
-│   ├── training/          # Training loops, evaluation
-│   ├── physics/           # RANS equations, losses
-│   ├── boundary_conditions/
-│   ├── utils/             # Data loading, helpers
-│   ├── visualization/     # Plotting, ParaView export
-│   └── data/              # Geometry, data scripts
-├── configs/               # Configuration files (12)
-├── experiments/ablations/ # 44 completed experiments
-├── docs/                  # Comprehensive documentation
-│   ├── versioning/
-│   │   ├── VERSION_HISTORY.md    # v1.1 → v2.0 evolution
-│   │   └── CURRENT_VERSION.md    # Complete API reference
-│   ├── theory/THEORY.md           # Mathematical foundations
-│   └── RESULTS.md                 # Experimental outcomes
-├── deprecated/            # Historical code (v1.1-v1.5)
-├── main.py               # Entry point
-├── requirements.txt      # Dependencies
-└── README.md            # This file
+├── src/                    # Primary application code (PINN, training, physics, viz, utils)
+├── configs/                # Experiment configs (run as scripts from repo root)
+├── tests/                  # Pytest suite (smoke, imports, PINN forward)
+├── docs/
+│   ├── repository/         # FILE_LAYOUT, WORK_LOG
+│   ├── testing/            # TEST_RESULTS.md
+│   ├── versioning/         # VERSION_HISTORY, CURRENT_VERSION
+│   ├── theory/             # THEORY.md
+│   └── RESULTS.md
+├── .cursor/                # Cloud agent bootstrap (environment.json, install.sh)
+├── experiments/ablations/  # Archived experiment configs
+├── deprecated/             # Historical code (not in default tests)
+├── main.py                 # Pipeline entry (also smoke_env_check_cli)
+├── definitions.py, PINN.py, …  # Compatibility shims → src/
+├── requirements.txt
+├── AGENTS.md               # Agent instructions
+└── README.md               # This file
 ```
 
 ---
@@ -255,4 +277,4 @@ See `docs/versioning/VERSION_HISTORY.md` for complete evolution.
 
 **Thank you for your interest in Physics-Informed Neural Networks for wind flow simulation!**
 
-*Last Updated: November 2025 | Version: 2.0.0 | Status: Publication-Ready*
+*Last Updated: April 2026 | Version: 2.0.0 | Status: Publication-Ready*
