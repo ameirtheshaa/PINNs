@@ -1,0 +1,3 @@
+{
+  "install": "chmod +x .cursor/install.sh && ./.cursor/install.sh"
+}

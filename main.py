@@ -6,6 +6,37 @@ from testing import *
 from physics import *
 
 def main(base_directory, config, device=None, data_dict=None, input_params=None, output_params=None, model=None, output_zip_file=None):
+    if base_directory == "smoke_env_check_cli":
+        import subprocess
+        import tempfile
+        import venv
+
+        print(f"smoke_env_check_cli: Python {sys.version.split()[0]} ({sys.executable})")
+        venv.__doc__  # noqa: B018 — ensure stdlib venv module is present
+
+        td = tempfile.mkdtemp(prefix="pinns_venv_probe_")
+        try:
+            venv.EnvBuilder(with_pip=True).create(td)
+            py = os.path.join(td, "bin", "python")
+            if not os.path.isfile(py):
+                raise RuntimeError(f"venv python missing after create: {py}")
+            r = subprocess.run(
+                [py, "-c", "import pip; import ensurepip"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if r.returncode != 0:
+                raise RuntimeError(
+                    "venv smoke: pip/ensurepip not usable inside new venv\n"
+                    + (r.stderr or r.stdout or "")
+                )
+        finally:
+            shutil.rmtree(td, ignore_errors=True)
+
+        print("smoke_env_check_cli: venv + pip OK; heavy imports already loaded via main module graph")
+        return
+
     overall_start_time = time.time()
     today = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
     
